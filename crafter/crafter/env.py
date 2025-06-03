@@ -6,6 +6,7 @@ from . import constants
 from . import engine
 from . import objects
 from . import worldgen
+import random
 
 
 # Gym is an optional dependency.
@@ -54,6 +55,11 @@ class Env(BaseClass):
     # Some libraries expect these attributes to be set.
     self.reward_range = None
     self.metadata = None
+    
+    self.init_items = []
+    self.init_num = []
+    self.init_center = "mid" 
+    self.center = (random.randint(0, 63), random.randint(0, 63))
 
   @property
   def observation_space(self):
@@ -66,14 +72,24 @@ class Env(BaseClass):
   @property
   def action_names(self):
     return constants.actions
+  
+  def reset_aux(self, init_items, init_num, init_center="mid"):
+    self.init_items = init_items
+    self.init_num = init_num
+    self.init_center = init_center 
 
   def reset(self):
     center = (self._world.area[0] // 2, self._world.area[1] // 2)
+    if self.init_center == "random":
+        center = (random.randint(0, 63), random.randint(0, 63))
+
     self._episode += 1
     self._step = 0
+
     self._world.reset(seed=hash((self._seed, self._episode)) % (2 ** 31 - 1))
     self._update_time()
-    self._player = objects.Player(self._world, center)
+
+    self._player = objects.Player(self._world, center, self.init_items, self.init_num)
     self._last_health = self._player.health
     self._world.add(self._player)
     self._unlocked = set()

@@ -29,6 +29,7 @@ class ResNetBlock(nn.Module):
 class CustomResNet(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.Space, features_dim: int = 1024):
         super().__init__(observation_space, features_dim)
+        # print(observation_space.shape)
         c, h, w = observation_space.shape
         
         self.conv_net = nn.Sequential(

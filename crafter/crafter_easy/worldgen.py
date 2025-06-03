@@ -35,15 +35,15 @@ def _set_material(world, pos, player, tunnels, simplex):
     if (simplex(x, y, 6, 7) > 0.15 and mountain > 0.3):  # cave
       world[x, y] = 'path'
     elif simplex(2 * x, y / 5, 7, 3) > 0.4:  # horizonal tunnle
-      world[x, y] = 'lava'
+      world[x, y] = 'path'
       tunnels[x, y] = True
     elif simplex(x / 5, 2 * y, 7, 3) > 0.4:  # vertical tunnle
-      world[x, y] = 'lava'
+      world[x, y] = 'path'
       tunnels[x, y] = True
     elif simplex(x, y, 1, 8) > 0 and uniform() > 0.85:
       world[x, y] = 'coal'
     elif simplex(x, y, 2, 6) > 0.4 and uniform() > 0.75:
-      world[x, y] = 'lava'
+      world[x, y] = 'iron'
     elif mountain > 0.18 and uniform() > 0.994:
       world[x, y] = 'diamond'
     elif mountain > 0.3 and simplex(x, y, 6, 5) > 0.35:
@@ -51,7 +51,7 @@ def _set_material(world, pos, player, tunnels, simplex):
     else:
       world[x, y] = 'stone'
   elif 0.25 < water <= 0.35 and simplex(x, y, 4, 9) > -0.2:
-    world[x, y] = 'lava'
+    world[x, y] = 'sand'
   elif 0.3 < water:
     world[x, y] = 'water'
   else:  # grassland
@@ -70,10 +70,10 @@ def _set_object(world, pos, player, tunnels):
     pass
   elif dist > 3 and material == 'grass' and uniform() > 0.985:
     world.add(objects.Cow(world, (x, y)))
-  # elif dist > 10 and uniform() > 0.993:
-  #   world.add(objects.Zombie(world, (x, y), player))
-  # elif material == 'path' and tunnels[x, y] and uniform() > 0.95:
-  #   world.add(objects.Skeleton(world, (x, y), player))
+  elif dist > 10 and uniform() > 0.993:
+    world.add(objects.Zombie(world, (x, y), player))
+  elif material == 'path' and tunnels[x, y] and uniform() > 0.95:
+    world.add(objects.Skeleton(world, (x, y), player))
 
 
 def _simplex(simplex, x, y, z, sizes, normalize=True):

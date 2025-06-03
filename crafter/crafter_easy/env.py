@@ -46,7 +46,7 @@ class Env(BaseClass):
     self._sem_view = engine.SemanticView(self._world, [
         objects.Player, objects.Cow, objects.Zombie,
         objects.Skeleton, objects.Arrow, objects.Plant])
-    self._step = None
+    self.cur_step = None
     self._player = None
     self._last_health = None
     self._unlocked = None
@@ -69,7 +69,7 @@ class Env(BaseClass):
   def reset(self):
     center = (self._world.area[0] // 2, self._world.area[1] // 2)
     self._episode += 1
-    self._step = 0
+    self.cur_step = 0
     self._world.reset(seed=hash((self._seed, self._episode)) % (2 ** 31 - 1))
     self._update_time()
     self._player = objects.Player(self._world, center)
@@ -80,13 +80,13 @@ class Env(BaseClass):
     return self._obs()
 
   def step(self, action):
-    self._step += 1
+    self.cur_step += 1
     self._update_time()
     self._player.action = constants.actions[action]
     for obj in self._world.objects:
       if self._player.distance(obj) < 2 * max(self._view):
         obj.update()
-    if self._step % 10 == 0:
+    if self.cur_step % 10 == 0:
       for chunk, objs in self._world.chunks.items():
         # xmin, xmax, ymin, ymax = chunk
         # center = (xmax - xmin) // 2, (ymax - ymin) // 2
@@ -102,7 +102,7 @@ class Env(BaseClass):
       self._unlocked |= unlocked
       reward += 1.0
     dead = self._player.health <= 0
-    over = self._length and self._step >= self._length
+    over = self._length and self.cur_step >= self._length
     done = dead or over
     info = {
         'inventory': self._player.inventory.copy(),
@@ -139,21 +139,21 @@ class Env(BaseClass):
 
   def _update_time(self):
     # https://www.desmos.com/calculator/grfbc6rs3h
-    progress = (self._step / 300) % 1 + 0.3
+    progress = (self.cur_step / 300) % 1 + 0.3
     daylight = 1 - np.abs(np.cos(np.pi * progress)) ** 3
     self._world.daylight = daylight
 
   def _balance_chunk(self, chunk, objs):
     light = self._world.daylight
-    # self._balance_object(
-    #     chunk, objs, objects.Zombie, 'grass', 6, 0, 0.3, 0.4,
-    #     lambda pos: objects.Zombie(self._world, pos, self._player),
-    #     lambda num, space: (
-    #         0 if space < 50 else 3.5 - 3 * light, 3.5 - 3 * light))
-    # self._balance_object(
-    #     chunk, objs, objects.Skeleton, 'path', 7, 7, 0.1, 0.1,
-    #     lambda pos: objects.Skeleton(self._world, pos, self._player),
-    #     lambda num, space: (0 if space < 6 else 1, 2))
+    self._balance_object(
+        chunk, objs, objects.Zombie, 'grass', 6, 0, 0.3, 0.4,
+        lambda pos: objects.Zombie(self._world, pos, self._player),
+        lambda num, space: (
+            0 if space < 50 else 3.5 - 3 * light, 3.5 - 3 * light))
+    self._balance_object(
+        chunk, objs, objects.Skeleton, 'path', 7, 7, 0.1, 0.1,
+        lambda pos: objects.Skeleton(self._world, pos, self._player),
+        lambda num, space: (0 if space < 6 else 1, 2))
     self._balance_object(
         chunk, objs, objects.Cow, 'grass', 5, 5, 0.01, 0.1,
         lambda pos: objects.Cow(self._world, pos),

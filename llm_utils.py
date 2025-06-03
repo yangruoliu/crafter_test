@@ -1,13 +1,15 @@
 from ollama import chat
 from config import SYS_PROMPT
+from openai import OpenAI
 
-def llm_chat(prompt, model="qwen2.5:7b"):
+
+def llm_chat(prompt, system_prompt = SYS_PROMPT, model="qwen2.5:7b"):
 
     messages = []
 
     sys_prompt = {}
     sys_prompt['role'] = "system"
-    sys_prompt['content'] = SYS_PROMPT
+    sys_prompt['content'] = system_prompt
 
     messages.append(sys_prompt)
 
@@ -17,9 +19,16 @@ def llm_chat(prompt, model="qwen2.5:7b"):
 
     messages.append(user_prompt)
 
-    response = chat(model=model, messages=messages)
+    if model == "deepseek-chat":
 
-    text = response["message"]["content"]
+        client = OpenAI(api_key="sk-e644af4f242e4e989d8d73cfb9ceac25", base_url="https://api.deepseek.com")
+        response = client.chat.completions.create(model = model, messages = messages, stream = False)
+        text = response.choices[0].message.content
+
+    else:
+
+        response = chat(model=model, messages=messages)
+        text = response["message"]["content"]
 
     return text
 

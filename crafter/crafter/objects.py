@@ -67,7 +67,7 @@ class Object:
 
 class Player(Object):
 
-  def __init__(self, world, pos):
+  def __init__(self, world, pos, init_items, init_num):
     super().__init__(world, pos)
     self.facing = (0, 1)
     self.inventory = {
@@ -80,6 +80,15 @@ class Player(Object):
     self._thirst = 0
     self._fatigue = 0
     self._recover = 0
+
+    self.init_items = init_items
+    self.init_num = init_num
+    self.set_init_items()
+
+  def set_init_items(self):
+    for i in range(len(self.init_items)):
+      self.inventory[self.init_items[i]] = self.init_num[i]
+
 
   @property
   def texture(self):
