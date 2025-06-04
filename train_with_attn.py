@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     env = gym.make("MyCrafter-v0") 
 
-    env = env_wrapper.LabelGeneratingWrapper(env, get_label_func=get_label, target_obj="stone", num_aux_classes=2)
+    env = env_wrapper.LabelGeneratingWrapper(env, get_label_func=get_label, target_obj="tree", num_aux_classes=2)
 
     # env = env_wrapper.myFrameStack(env, stack_size=4)
     # env = gym.make("MyCrafter-v1")
@@ -49,13 +49,14 @@ if __name__ == "__main__":
     # env = env_wrapper.MovementWrapper(env)
     # env = env_wrapper.DrinkWaterWrapper(env)
     # env = env_wrapper.AttentionMapWrapper(env, obj_list=["stone"], stack_size=2)
-    env = env_wrapper.MineStoneWrapper(env)
+    # env = env_wrapper.MineStoneWrapper(env)
     # env = env_wrapper.StoneSwordWrapper(env)
     # env = env_wrapper.MineCoalWrapper(env, navigation_model=PPO.load("navigation_coal"))
     # env = env_wrapper.MineIronWrapper(env, navigation_model=PPO.load("navigation_iron"))
     # env = env_wrapper.NavigationWrapper(env, 9)
+    env = env_wrapper.WoodWrapper(env)
     # env = env_wrapper.MineIronWrapper2(env)
-    env = env_wrapper.InitWrapper(env, init_items=["wood_pickaxe"], init_num=[1])
+    env = env_wrapper.InitWrapper(env, init_items=[], init_num=[])
     # env = env_wrapper.FurnaceWrapper(env)
     # env = env_wrapper.WoodPickaxeWrapper(env)
 
@@ -85,7 +86,7 @@ if __name__ == "__main__":
         max_grad_norm=0.5,
         verbose=1,
         normalize_advantage=False,
-        aux_weight=0.5
+        aux_weight=0.2
     )
 
     total_timesteps = 1000000
@@ -93,6 +94,6 @@ if __name__ == "__main__":
     # model.learn(total_timesteps=total_timesteps, callback=TQDMProgressBar(total_timesteps=total_timesteps))
     model.learn(total_timesteps=total_timesteps, progress_bar=True)
 
-    model.save("stone_with_attn")
+    model.save("wood0.2")
 
     env.close()

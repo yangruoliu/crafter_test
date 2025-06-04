@@ -134,6 +134,7 @@ class CustomPPO(PPO):
             ewma_decay=0.99  # As per your settings
         )
 
+
 class TQDMProgressBar(BaseCallback):
     def __init__(self, total_timesteps):
         super().__init__()

@@ -113,9 +113,9 @@ if __name__ == "__main__":
         env = env_wrapper.LLMWrapper(env, model=model)
 
     # model = PPO.load(os.path.join("RL_models", "stone.zip"))
-    model = PPO.load("stone_pickaxe_attn")
-    stack_size = 2
-    with_attn = True
+    model = PPO.load("wood")
+    stack_size = 1
+    with_attn = False
     test_episodes = 1 
     render = True
 

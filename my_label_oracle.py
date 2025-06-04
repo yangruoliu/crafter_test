@@ -20,7 +20,6 @@ def parse_seen_objects(info_text):
 
         if in_see_section:
             if stripped_line.startswith("- "):
-                # 移除行首的 "- "
                 content = stripped_line[2:]
                 match = pattern.match(content)
                 if match:
@@ -31,11 +30,11 @@ def parse_seen_objects(info_text):
                     objects_list.append(object_name)
                     distances_list.append(distance)
                     directions_list.append(direction)
-                # else: # 如果行以"- "开头但不匹配完整模式，可以选择忽略或记录错误
-            elif not stripped_line: # 空行表示 "You see:" 区域的结束
+
+            elif not stripped_line:
                 in_see_section = False
-                break # 通常物体列表结束后会有空行，可以停止解析
-            else: # 如果是不以"- "开头的非空行，也表示 "You see:" 区域的结束
+                break
+            else:
                 in_see_section = False
                 break
 

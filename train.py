@@ -45,14 +45,15 @@ if __name__ == "__main__":
 
     # env = env_wrapper.MovementWrapper(env)
     # env = env_wrapper.DrinkWaterWrapper(env)
-    env = env_wrapper.AttentionMapWrapper(env, obj_list=["stone"], stack_size=2)
-    env = env_wrapper.MineStoneWrapper(env)
+    # env = env_wrapper.AttentionMapWrapper(env, obj_list=["stone"], stack_size=2)
+    # env = env_wrapper.MineStoneWrapper(env)
+    env = env_wrapper.WoodWrapper(env)
     # env = env_wrapper.StoneSwordWrapper(env)
     # env = env_wrapper.MineCoalWrapper(env, navigation_model=PPO.load("navigation_coal"))
     # env = env_wrapper.MineIronWrapper(env, navigation_model=PPO.load("navigation_iron"))
     # env = env_wrapper.NavigationWrapper(env, 9)
     # env = env_wrapper.MineIronWrapper2(env)
-    env = env_wrapper.InitWrapper(env, init_items=["wood_pickaxe"], init_num=[1])
+    env = env_wrapper.InitWrapper(env, init_items=[], init_num=[])
     # env = env_wrapper.FurnaceWrapper(env)
     # env = env_wrapper.WoodPickaxeWrapper(env)
 
@@ -88,6 +89,6 @@ if __name__ == "__main__":
     # model.learn(total_timesteps=total_timesteps, callback=TQDMProgressBar(total_timesteps=total_timesteps))
     model.learn(total_timesteps=total_timesteps, callback=RewardLoggerCallback(check_freq=1000, log_path="./log/"), progress_bar=True)
 
-    model.save("stone_pickaxe_attn")
+    model.save("wood")
 
     env.close()

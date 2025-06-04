@@ -75,7 +75,7 @@ if __name__ == "__main__":
     model = "qwen2.5:7b"
 
     env = gym.make("MyCrafter-v0")
-    env = env_wrapper.LabelGeneratingWrapper(env, get_label_func=get_label, target_obj="stone", num_aux_classes=2)
+    env = env_wrapper.LabelGeneratingWrapper(env, get_label_func=get_label, target_obj="tree", num_aux_classes=2)
     # env = crafter.Recorder(
     #     env, "base_model_res",
     #     save_stats = False,
@@ -86,14 +86,14 @@ if __name__ == "__main__":
     # env = env_wrapper.MakeStoneSwordWrapper(env)
     # env = env_wrapper.NavigationWrapper(env, obj_index=9)
     # env = env_wrapper.MineIronWrapper(env, navigation_model=PPO.load("navigation_iron"))
-    env = env_wrapper.InitWrapper(env, init_items=["wood_pickaxe"], init_num=[1])
+    # env = env_wrapper.InitWrapper(env, init_items=["wood_pickaxe"], init_num=[1])
     # env = env_wrapper.StoneSwordWrapper(env)
 
     if generate_rule:
         env = env_wrapper.LLMWrapper(env, model=model)
 
     # model = PPO.load(os.path.join("RL_models", "stone.zip"))
-    model = PPO.load(os.path.join("RL_models","stone_with_attn"))
+    model = PPO.load("wood0.02")
     stack_size = 1
     with_attn = False
     test_episodes = 1 
