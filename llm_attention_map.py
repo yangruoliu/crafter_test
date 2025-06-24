@@ -251,12 +251,11 @@ if __name__ == "__main__":
 
     attn = obs_to_attn_map(obs)
     print(attn)
-    state_img = np.load("gaga.npy")
+    state_img = np.load("state_img.npy")
 
     blurred_img = blur(state_img, attn)
     img = Image.fromarray(blurred_img)
     img.show()
-    # img.save("KOBE.png")
 
     # img = convert_to_rgb_image_pil(attn)
     # img = Image.fromarray(img)
