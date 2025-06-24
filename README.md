@@ -53,8 +53,16 @@ env = InitWrapper(env, ["stone_piakaxe", "wood"], [1, 2])
 
 ### 注意事项
 
-本项目在原始的crafter环境中做了一些修改，所以与通过`pip`安装的crafter环境可能会不兼容，建议新建一个环境，然后安装相关依赖：
+1. 本项目在原始的crafter环境中做了一些修改，所以与通过`pip`安装的crafter环境可能会不兼容，建议新建一个环境，然后安装相关依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
+2. 本项目使用的线上模型是deepseek671B，请在运行前设置环境变量`DEEPSEEK_API_KEY`为您的api_key
+
+验证方法：
+
+```bash
+echo $DEEPSEEK_API_KEY
+
+如果输出为您的api_key则代表环境变量成功设置

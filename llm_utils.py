@@ -1,6 +1,7 @@
 from ollama import chat
 from config import SYS_PROMPT
 from openai import OpenAI
+import os
 
 
 def llm_chat(prompt, system_prompt = SYS_PROMPT, model="qwen2.5:7b"):
@@ -21,7 +22,12 @@ def llm_chat(prompt, system_prompt = SYS_PROMPT, model="qwen2.5:7b"):
 
     if model == "deepseek-chat":
 
-        client = OpenAI(api_key="sk-e644af4f242e4e989d8d73cfb9ceac25", base_url="https://api.deepseek.com")
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+
+        if not api_key:
+            raise ValueError("No DEEPSEEK_API_KEY is defined")
+
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         response = client.chat.completions.create(model = model, messages = messages, stream = False)
         text = response.choices[0].message.content
 
