@@ -133,13 +133,9 @@ class LLMWrapper(gym.Wrapper):
 
         obs, reward, done, info = self.env.step(action)
 
-        # if reward >= 1 or reward <= -1:
-        if reward == 0.003:
+        if reward >= 1 or reward <= -1:
             user_prompt = llm_utils.compose_user_prompt(info["obs"] + info['history'], self.rule_set)
             self.rule_set = llm_utils.llm_chat(user_prompt, model=self.model)
-            # if "deepseek" in self.model:
-            #     index = self.rule_set.find("</think>")
-            #     self.rule_set = self.rule_set[index+8:]
             print(self.rule_set)
         
         self.cur_step += 1

@@ -91,17 +91,15 @@ if __name__ == "__main__":
     rules = open("rules.txt", 'r').read()
 
 
-    model1 = PPO.load("original_agent")
+    model1 = PPO.load(os.path.join("RL_models", "orinal_agent"))
     model2 = PPO.load(os.path.join("RL_models", "stone"))
-    model3 = PPO.load("stone_pickaxe")
-    model4 = PPO.load("wood")
+    model3 = PPO.load(os.path.join("RL_models", "stone_pickaxe"))
     model5 = PPO.load(os.path.join("RL_models", "wood_pickaxe"))
 
     model_list = {}
     model_list = {"base": model1,
                   "stone": model2,
                   "stone_pickaxe": model3,
-                  "wood": model4,
                   "wood_pickaxe": model5}
 
     test_episodes = 1

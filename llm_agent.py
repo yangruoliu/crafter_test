@@ -3,10 +3,8 @@ import matplotlib.pyplot as plt
 import time
 from PIL import Image
 import gym
-from pydantic_core.core_schema import invalid_schema
 from stable_baselines3 import PPO
 from torch import ge, inverse
-# import crafter
 from crafter import crafter
 import env_wrapper
 import os
@@ -14,6 +12,7 @@ import llm_prompt
 import llm_utils
 import numpy as np
 from tqdm import tqdm
+from model import CustomACPolicy
 
 def show(fig, image_display, obs):
 
@@ -214,17 +213,28 @@ def test(env, model_list, num_episodes, rules, model_description, goal_list, sta
 
 if __name__ == "__main__":
 
+    config = {
+        "test_episodes": 1,
+        "recorder": False,
+        "recoder_res_path": "our_method_res",
+        "init_items": [],
+        "init_num": [],
+        "render": False,
+        "goal_list": ["wood_pickaxe", "stone_pickaxe", "stone", "coal", "furnace", "iron"],
+        "mode": "lazy",
+        "stack_size": 1
+    }
 
     env = gym.make("MyCrafter-v0")
 
-    env = crafter.Recorder(
-        env, "our_method_res",
-        save_stats = True,
-        save_video = False,
-        save_episode = False,
-    )
-    # env = env_wrapper.MineStoneWrapper(env)
-    env = env_wrapper.InitWrapper(env, init_items=[], init_num=[])
+    if config["recorder"]:
+        env = crafter.Recorder(
+            env, config["recoder_res_path"],
+            save_stats = True,
+            save_video = False,
+            save_episode = False,
+        )
+    env = env_wrapper.InitWrapper(env, init_items=config["init_items"], init_num=["init_num"])
 
 
     model_description = '''{
@@ -262,11 +272,11 @@ if __name__ == "__main__":
                   "model0": model8
                  }
 
-    test_episodes = 100 
-    render = False
-    goal_list = ["wood_pickaxe", "stone_pickaxe", "stone", "coal", "furnace", "iron"]
-    mode = "lazy"
-    stack_size = 1
+    test_episodes = config["test_episodes"]
+    render = config["render"]
+    goal_list = config["goal_list"]
+    mode = config["mode"] 
+    stack_size = config["stack_size"]
 
     total_rewards = test(env, model_list, test_episodes, rules=rules, model_description=model_description, goal_list=goal_list, render=render, last_model_call="", mode=mode, stack_size=stack_size)
 

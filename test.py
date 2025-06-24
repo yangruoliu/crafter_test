@@ -12,7 +12,7 @@ import numpy as np
 from tqdm import tqdm
 from llm_attention_map import parse_seen_objects, build_attn_map, convert_to_rgb_image_pil
 
-def test(env, model, num_episodes, attn_obj_list=[], stack_size=2, render=True, with_attn=False):
+def test(env, model, num_episodes, stack_size=2, render=True):
 
     print("Testing...")
 
@@ -22,16 +22,11 @@ def test(env, model, num_episodes, attn_obj_list=[], stack_size=2, render=True, 
 
         obs = env.reset()
 
-        attn = np.full((64, 64, 3), 255, dtype=np.uint8)
-
         if render:
 
             plt.ion()
             fig, ax = plt.subplots()
-            if with_attn:
-                image_display = ax.imshow(np.hstack((obs, attn)))
-            else:
-                image_display = ax.imshow(obs)
+            image_display = ax.imshow(obs)
             plt.show(block=False)
 
         done = False
@@ -40,38 +35,18 @@ def test(env, model, num_episodes, attn_obj_list=[], stack_size=2, render=True, 
 
         while not done:
 
-            if with_attn:
-                action, _ = model.predict(np.concatenate([obs, attn], axis=-1), deterministic=False)
-            else:
-                action, _ = model.predict(np.concatenate(frames, axis=-1), deterministic=False)
+            action, _ = model.predict(np.concatenate(frames, axis=-1), deterministic=False)
 
             frames.pop(0)
             frames.append(obs)
 
             obs, reward, done, info = env.step(action)
 
-            if with_attn:
-
-                objects_list, distances_list, directions_list = parse_seen_objects(info['obs'])
-                
-                indices = [i for i, obj in enumerate(objects_list) if obj in attn_obj_list]
-
-                distances_list = [distances_list[i] for i in indices]
-                directions_list = [directions_list[i] for i in indices]
-
-                attn = build_attn_map(directions_list, distances_list)
-
-                attn = convert_to_rgb_image_pil(attn)
-
             episode_reward += reward
 
             if render:
 
-                if with_attn:
-                    img = Image.fromarray(np.hstack((obs, attn)))
-
-                else:
-                    img = Image.fromarray(obs)
+                img = Image.fromarray(obs)
 
                 image_display.set_data(img)
                 fig.canvas.draw_idle()
@@ -90,36 +65,40 @@ def test(env, model, num_episodes, attn_obj_list=[], stack_size=2, render=True, 
 
 if __name__ == "__main__":
 
+    config = {
+        "generate_rule": False,
+        "test_episodes": 1,
+        "recorder": False,
+        "recorder_res_path": "base_model_res",
+        "init_items": ["wood_pickaxe"],
+        "init_num": [1],
+        "render": False,
+        "stack_size": 1,
+        "model_name": "stone"
+    }
 
-    generate_rule = False
-    # model = "deepseek-r1:8b"
-    model = "qwen2.5:7b"
+    generate_rule = config["generate_rule"]
 
     env = gym.make("MyCrafter-v0")
-    # env = crafter.Recorder(
-    #     env, "base_model_res",
-    #     save_stats = False,
-    #     save_video = False,
-    #     save_episode = False,
-    # )
-    # env = env_wrapper.DrinkWaterWrapper(env)
-    # env = env_wrapper.MakeStoneSwordWrapper(env)
-    # env = env_wrapper.NavigationWrapper(env, obj_index=9)
-    # env = env_wrapper.MineIronWrapper(env, navigation_model=PPO.load("navigation_iron"))
-    env = env_wrapper.InitWrapper(env, init_items=["wood_pickaxe"], init_num=[1])
-    # env = env_wrapper.StoneSwordWrapper(env)
+    if config["recorder"]:
+        env = crafter.Recorder(
+            env, config["recorder_res_path"],
+            save_stats = False,
+            save_video = False,
+            save_episode = False,
+        )
+    env = env_wrapper.InitWrapper(env, init_items=config["init_items"], init_num=config["init_num"])
+    # env = env_wrapper.WoodPickaxeWrapper(env)
 
     if generate_rule:
         env = env_wrapper.LLMWrapper(env, model=model)
 
-    # model = PPO.load(os.path.join("RL_models", "stone.zip"))
-    model = PPO.load("wood")
-    stack_size = 1
-    with_attn = False
-    test_episodes = 1 
-    render = True
+    model = PPO.load(os.path.join("RL_models", config["model_name"]))
+    stack_size = config["stack_size"]
+    test_episodes = config["test_episodes"]
+    render = config["render"]
 
-    total_rewards = test(env, model, test_episodes, render=render, stack_size=stack_size, with_attn=with_attn, attn_obj_list=["stone"])
+    total_rewards = test(env, model, test_episodes, render=render, stack_size=stack_size)
 
     average_reward = sum(total_rewards) / test_episodes
     print(f"Average reward over {test_episodes} episodes: {average_reward}")

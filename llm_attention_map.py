@@ -8,6 +8,7 @@ import llm_utils
 import llm_prompt
 import json
 from PIL import Image
+import cv2
 
 
 KEY1 = "object" 
@@ -131,6 +132,26 @@ def build_attn_map(directions_list, distances_list):
         print(e)
     return attn_map
 
+def blur(state_img, attn_map):
+
+    result = state_img.copy()
+
+    for i in range(attn_map.shape[0]):
+        for j in range(attn_map.shape[1]):
+            y1 = i * 7
+            y2 = (i + 1) * 7
+            x1 = j * 7
+            x2 = (j + 1) * 7
+
+            region = state_img[y1:y2, x1:x2, :]
+
+            attention_value = attn_map[i, j]
+            if attention_value == 0:
+                blurred_region = cv2.GaussianBlur(region, (7, 7), 0)
+                result[y1:y2, x1:x2, :] = blurred_region
+    np.save("MAN",  result)
+    return result
+
 def convert_to_rgb_image_pil(arr_9x9):
 
     assert arr_9x9.shape == (9, 9), "Input must be of shape (9, 9)"
@@ -229,11 +250,18 @@ if __name__ == "__main__":
     obs = "You took action do.\n\n\n\nYou see:\n- grass 2 steps to your south\n- stone 1 steps to your west\n- path 1 steps to your north\n- tree 4 steps to your south-east\n- iron 5 steps to your north-west\n\nYou face path at your front.\n\nYour status:\n- health: 7/9\n- food: 5/9\n- drink: 4/9\n- energy: 9/9\n\nYou have nothing in your inventory."
 
     attn = obs_to_attn_map(obs)
+    print(attn)
+    state_img = np.load("gaga.npy")
 
-    img = convert_to_rgb_image_pil(attn)
-    img = Image.fromarray(img)
-    img.save("mask.png")
+    blurred_img = blur(state_img, attn)
+    img = Image.fromarray(blurred_img)
     img.show()
+    # img.save("KOBE.png")
+
+    # img = convert_to_rgb_image_pil(attn)
+    # img = Image.fromarray(img)
+    # img.save("mask.png")
+    # img.show()
 
     # prompt = llm_prompt.compose_llm_attention_prompt(rules, obs, goal)
 

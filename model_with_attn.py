@@ -128,35 +128,35 @@ class CustomACPolicy(ActorCriticPolicy):
     #
     #     return classification_results
 
-# class EWMARolloutBuffer(DictRolloutBuffer):
-#     def __init__(self, *args, ewma_decay=0.99, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.ewma_decay = ewma_decay
-#         self.ewma_mean = 0.0
-#         self.ewma_var = 1.0
-#         self.ewma_count = 0
-#
-#     def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
-#         # Compute returns and advantages using parent method
-#         super().compute_returns_and_advantage(last_values, dones)
-#
-#         # Update EWMA statistics using returns from the current rollout
-#         returns = self.returns.flatten()
-#         batch_mean = np.mean(returns)
-#         batch_var = np.var(returns)
-#
-#         if self.ewma_count == 0:
-#             self.ewma_mean = batch_mean
-#             self.ewma_var = batch_var
-#         else:
-#             # Apply EWMA update
-#             self.ewma_mean = self.ewma_decay * self.ewma_mean + (1 - self.ewma_decay) * batch_mean
-#             self.ewma_var = self.ewma_decay * self.ewma_var + (1 - self.ewma_decay) * batch_var
-#
-#         self.ewma_count += 1
-#
-#         # Normalize returns with EWMA stats
-#         self.returns = (self.returns - self.ewma_mean) / (np.sqrt(self.ewma_var) + 1e-8)
+class EWMARolloutBuffer(DictRolloutBuffer):
+    def __init__(self, *args, ewma_decay=0.99, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ewma_decay = ewma_decay
+        self.ewma_mean = 0.0
+        self.ewma_var = 1.0
+        self.ewma_count = 0
+
+    def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
+        # Compute returns and advantages using parent method
+        super().compute_returns_and_advantage(last_values, dones)
+
+        # Update EWMA statistics using returns from the current rollout
+        returns = self.returns.flatten()
+        batch_mean = np.mean(returns)
+        batch_var = np.var(returns)
+
+        if self.ewma_count == 0:
+            self.ewma_mean = batch_mean
+            self.ewma_var = batch_var
+        else:
+            # Apply EWMA update
+            self.ewma_mean = self.ewma_decay * self.ewma_mean + (1 - self.ewma_decay) * batch_mean
+            self.ewma_var = self.ewma_decay * self.ewma_var + (1 - self.ewma_decay) * batch_var
+
+        self.ewma_count += 1
+
+        # Normalize returns with EWMA stats
+        self.returns = (self.returns - self.ewma_mean) / (np.sqrt(self.ewma_var) + 1e-8)
 
 
 class CustomPPO(PPO):
@@ -169,16 +169,16 @@ class CustomPPO(PPO):
     def _setup_model(self) -> None:
         super()._setup_model()  # Initialize default components
         # Replace the buffer with the custom EWMA buffer
-        # self.rollout_buffer = EWMARolloutBuffer(
-        #     self.n_steps,
-        #     self.observation_space,
-        #     self.action_space,
-        #     device=self.device,
-        #     gamma=self.gamma,
-        #     gae_lambda=self.gae_lambda,
-        #     n_envs=self.n_envs,
-        #     ewma_decay=0.99  # As per your settings
-        # )
+        self.rollout_buffer = EWMARolloutBuffer(
+            self.n_steps,
+            self.observation_space,
+            self.action_space,
+            device=self.device,
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+            n_envs=self.n_envs,
+            ewma_decay=0.99  # As per your settings
+        )
 
     # def train(self):
     #     self.policy.set_training_mode(True)

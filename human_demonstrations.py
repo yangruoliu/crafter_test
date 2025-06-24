@@ -66,16 +66,8 @@ def main():
 
   env = gym.make("MyCrafter-v0") 
 
-  # env = crafter.Recorder(
-  # env, "path",
-  # save_stats=False,
-  # save_episode=False,
-  # save_video=False,
-  # )
-  # env = env_wrapper.LLMSubtaskWrapper(env, model="deepseek-chat", current_goal="place a furnace")
   # env = env_wrapper.FurnaceWrapper(env)
   env = env_wrapper.LLMWrapper(env, model="deepseek-chat")
-  env = env_wrapper.MineIronWrapper(env, navigation_model=PPO.load("navigation_iron"))
   env = env_wrapper.InitWrapper(env, init_items=["stone_pickaxe"], init_num=[1], init_center=6)
   # env = env_wrapper.NavigationWrapper(env, obj_index=9)
   env.reset()
