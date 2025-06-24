@@ -39,7 +39,7 @@ LLM根据规则做出任务规划，定义一系列子任务（尚不完善）
 * `InitWrapper`: 用于对装备栏初始化，如：
 
 ```python
-env = InitWrapper(env, ["stone_piakaxe", "wood"], [1, 2])
+env = InitWrapper(env, ["stone_pickaxe", "wood"], [1, 2])
 ```
 表示初始环境装备栏中加入一个木头镐和两个木头，可以在`train.py`以及`test.py`的config字典中进行设置
 
