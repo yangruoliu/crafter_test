@@ -85,7 +85,7 @@ class CustomResNet(BaseFeaturesExtractor):
 
 
 class CustomACPolicy(ActorCriticPolicy):
-    def __init__(self, *args, num_aux_classes: int, **kwargs):
+    def __init__(self, *args, num_aux_classes: int = 9, **kwargs):
         super().__init__(*args, **kwargs)
         # Modify final layer initialization
         nn.init.orthogonal_(self.action_net.weight, gain=0.01)
@@ -94,39 +94,66 @@ class CustomACPolicy(ActorCriticPolicy):
         nn.init.constant_(self.value_net.bias, 0)
 
         features_dim = self.features_extractor.features_dim
-        # self.aux_net = nn.Linear(features_dim, num_aux_classes)
+        # Direction prediction network for 9 classes (8 directions + None)
+        self.direction_net = nn.Linear(features_dim, num_aux_classes)
+        
+        # Initialize direction prediction network
+        nn.init.orthogonal_(self.direction_net.weight, gain=1.0)
+        nn.init.constant_(self.direction_net.bias, 0)
 
-    # def evaluate_actions(self, obs: torch.Tensor, actions: torch.Tensor):
-    #
-    #     features = self.extract_features(obs)
-    #     latent_pi, latent_vf = self.mlp_extractor(features)
-    #     distribution = self._get_action_dist_from_latent(latent_pi)
-    #     log_prob = distribution.log_prob(actions)
-    #     values = self.value_net(latent_vf)
-    #
-    #     # aux_logits = self.aux_net(features)
-    #
-    #     # return values, log_prob, distribution.entropy(), aux_logits
-    #     return values, log_prob, distribution.entropy()
+    def evaluate_actions(self, obs: torch.Tensor, actions: torch.Tensor):
+        """
+        Evaluate actions according to the current policy,
+        given the observations and actions.
+        
+        :param obs: Observation
+        :param actions: Actions
+        :return: estimated value, log probability of the action, entropy of the action distribution, 
+                 and direction prediction logits
+        """
+        features = self.extract_features(obs)
+        latent_pi, latent_vf = self.mlp_extractor(features)
+        distribution = self._get_action_dist_from_latent(latent_pi)
+        log_prob = distribution.log_prob(actions)
+        values = self.value_net(latent_vf)
 
-    # @torch.no_grad()
-    # def predict_with_aux(self, obs: dict[str, torch.Tensor], deterministic: bool = True):
-    #     self.set_training_mode(False)
-    #     obs_tensor, _ = self.obs_to_tensor(obs)
-    #
-    #     features = self.extract_features(obs_tensor)
-    #
-    #     aux_logits = self.aux_net(features)
-    #     aux_probabilities = F.softmax(aux_logits, dim=1)
-    #     predicted_class = torch.argmax(aux_probabilities, dim=1)
-    #
-    #     classification_results = {
-    #         "logits": aux_logits.cpu().numpy(),
-    #         "probabilisties": aux_probabilities.cpu().numpy(),
-    #         "predicted_class": predicted_class.cpu().numpy()
-    #     }
-    #
-    #     return classification_results
+        # Direction prediction
+        direction_logits = self.direction_net(features)
+
+        return values, log_prob, distribution.entropy(), direction_logits
+
+    @torch.no_grad()
+    def predict_with_direction(self, obs: dict[str, torch.Tensor], deterministic: bool = True):
+        """
+        Get the policy action and direction prediction from an observation.
+        
+        :param obs: the input observation
+        :param deterministic: Whether to use stochastic or deterministic actions
+        :return: the model's action, direction probabilities, and predicted direction class
+        """
+        self.set_training_mode(False)
+        obs_tensor, _ = self.obs_to_tensor(obs)
+
+        features = self.extract_features(obs_tensor)
+        latent_pi, _ = self.mlp_extractor(features)
+        distribution = self._get_action_dist_from_latent(latent_pi)
+        
+        if deterministic:
+            actions = distribution.mode()
+        else:
+            actions = distribution.sample()
+
+        direction_logits = self.direction_net(features)
+        direction_probabilities = F.softmax(direction_logits, dim=1)
+        predicted_direction = torch.argmax(direction_probabilities, dim=1)
+
+        direction_results = {
+            "logits": direction_logits.cpu().numpy(),
+            "probabilities": direction_probabilities.cpu().numpy(),
+            "predicted_direction": predicted_direction.cpu().numpy()
+        }
+
+        return actions.cpu().numpy(), direction_results
 
 class EWMARolloutBuffer(DictRolloutBuffer):
     def __init__(self, *args, ewma_decay=0.99, **kwargs):
@@ -135,6 +162,115 @@ class EWMARolloutBuffer(DictRolloutBuffer):
         self.ewma_mean = 0.0
         self.ewma_var = 1.0
         self.ewma_count = 0
+        
+        # Add storage for direction labels
+        self.direction_labels = None
+
+    def reset(self) -> None:
+        """
+        Reset the rollout buffer.
+        """
+        super().reset()
+        self.direction_labels = np.zeros((self.buffer_size, self.n_envs), dtype=np.long)
+
+    def add(
+        self,
+        obs: dict,
+        action: np.ndarray,
+        reward: np.ndarray,
+        episode_start: np.ndarray,
+        value: torch.Tensor,
+        log_prob: torch.Tensor,
+        direction_label: np.ndarray = None,
+    ) -> None:
+        """
+        Add elements to the rollout buffer.
+        
+        :param obs: Observation
+        :param action: Action
+        :param reward: 
+        :param episode_start: Start of episode signal.
+        :param value: estimated value of the observation
+        :param log_prob: log probability of the action
+        :param direction_label: direction label for auxiliary task
+        """
+        # Call parent add method
+        super().add(obs, action, reward, episode_start, value, log_prob)
+        
+        # Store direction labels if provided
+        if direction_label is not None:
+            if isinstance(direction_label, torch.Tensor):
+                direction_label = direction_label.cpu().numpy()
+            self.direction_labels[self.pos - 1] = direction_label.copy()
+
+    def get(self, batch_size: int = None):
+        """
+        Generator that returns batches of rollout data.
+        """
+        assert self.full, ""
+        indices = np.random.permutation(self.buffer_size * self.n_envs)
+        
+        # Prepare to return mini-batches
+        if batch_size is None:
+            batch_size = self.buffer_size * self.n_envs
+
+        start_idx = 0
+        while start_idx < len(indices):
+            batch_indices = indices[start_idx : start_idx + batch_size]
+            
+            # Get observations, actions, etc. from parent data structures
+            yield self._get_samples(batch_indices)
+            start_idx += batch_size
+
+    def _get_samples(self, batch_indices):
+        """
+        Get samples for given indices
+        """
+        from stable_baselines3.common.buffers import RolloutBufferSamples
+        from collections import namedtuple
+        
+        # Get observations (handling dict observation spaces)
+        observations = {}
+        for key in self.observations.keys():
+            observations[key] = self.observations[key][batch_indices]
+        
+        # Get other standard rollout data
+        actions = self.actions[batch_indices]
+        values = self.values[batch_indices].flatten()
+        log_probs = self.log_probs[batch_indices].flatten()
+        advantages = self.advantages[batch_indices].flatten()
+        returns = self.returns[batch_indices].flatten()
+        
+        # Convert to tensors
+        observations = {key: self.to_torch(obs) for key, obs in observations.items()}
+        actions = self.to_torch(actions)
+        values = self.to_torch(values)
+        log_probs = self.to_torch(log_probs)
+        advantages = self.to_torch(advantages)
+        returns = self.to_torch(returns)
+        
+        # Create custom batch with direction labels
+        ExtendedRolloutBufferSamples = namedtuple(
+            "ExtendedRolloutBufferSamples",
+            RolloutBufferSamples._fields + ("direction_labels",)
+        )
+        
+        # Get direction labels if available
+        direction_labels = None
+        if self.direction_labels is not None:
+            direction_labels = self.to_torch(self.direction_labels.flatten()[batch_indices])
+        
+        batch = ExtendedRolloutBufferSamples(
+            observations=observations,
+            actions=actions,
+            old_values=values,
+            old_log_prob=log_probs,
+            advantages=advantages,
+            returns=returns,
+            direction_labels=direction_labels
+        )
+        
+        return batch
 
     def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
         # Compute returns and advantages using parent method
@@ -161,10 +297,12 @@ class EWMARolloutBuffer(DictRolloutBuffer):
 
 class CustomPPO(PPO):
 
-    def __init__(self, *args, aux_weight: float = 0.5, **kwargs):
+    def __init__(self, *args, aux_weight: float = 0.5, direction_weight: float = 0.3, **kwargs):
         super().__init__(*args, **kwargs)
         self.aux_weight = aux_weight
+        self.direction_weight = direction_weight
         self.aux_loss_fn = torch.nn.CrossEntropyLoss()
+        self.direction_loss_fn = torch.nn.CrossEntropyLoss()
 
     def _setup_model(self) -> None:
         super()._setup_model()  # Initialize default components
@@ -180,61 +318,79 @@ class CustomPPO(PPO):
             ewma_decay=0.99  # As per your settings
         )
 
-    # def train(self):
-    #     self.policy.set_training_mode(True)
-    #     self._update_learning_rate(self.policy.optimizer)
-    #
-    #     for rollout_data in self.rollout_buffer.get(batch_size=self.batch_size):
-    #         actions = rollout_data.actions
-    #         if isinstance(self.action_space, spaces.Discrete):
-    #             actions = actions.long().flatten()
-    #         rl_observations = rollout_data.observations
-    #         ground_truth_labels = rollout_data.observations['label'].long().flatten()
-    #
-    #         values, log_prob, entropy, aux_logits = self.policy.evaluate_actions(rl_observations, actions)
-    #
-    #         current_clip_range = self.clip_range(self._current_progress_remaining)
-    #
-    #         advantages = rollout_data.advantages
-    #         ratio = torch.exp(log_prob - rollout_data.old_log_prob)
-    #         policy_loss1 = advantages * ratio
-    #         policy_loss2 = advantages * torch.clamp(ratio, 1 - current_clip_range, 1 + current_clip_range)
-    #         policy_loss = -torch.min(policy_loss1, policy_loss2).mean()
-    #         # value_loss = F.mse_loss(rollout_data.returns, values.flatten())
-    #         value_loss = F.mse_loss(rollout_data.returns, values.squeeze(-1))
-    #         entropy_loss = -torch.mean(entropy)
-    #
-    #         aux_loss = self.aux_loss_fn(aux_logits, ground_truth_labels)
-    #
-    #         with torch.no_grad():
-    #             pred = torch.argmax(aux_logits, dim=1)
-    #             acc = (pred == ground_truth_labels).float().mean().item()
-    #
-    #         total_loss = (
-    #             policy_loss
-    #             + self.ent_coef * entropy_loss
-    #             + self.vf_coef * value_loss
-    #             + self.aux_weight * aux_loss
-    #         )
-    #
-    #         self.policy.optimizer.zero_grad()
-    #         total_loss.backward()
-    #         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-    #         self.policy.optimizer.step()
-    #
-    #
-    #     self.logger.record("aux_loss", aux_loss.item())
-    #     self.logger.record("aux_accuracy", acc)
-    #     self.logger.record("policy_loss", policy_loss.item())
-    #     self.logger.record("value_loss", value_loss.item())
-    #     self.logger.record("entropy_loss", entropy_loss.item())
-    #     self.logger.record("total_loss", total_loss.item())
-    #     self.logger.dump(step=self.num_timesteps)
-    #     self.rollout_buffer.reset()
+    def collect_rollouts(
+        self, env, callback, rollout_buffer, n_rollout_steps: int
+    ) -> bool:
+        """
+        Collect experiences using the current policy and fill a rollout buffer.
+        Modified to collect direction labels during rollout.
+        """
+        assert self._last_obs is not None, "No previous observation was provided"
+        n_steps = 0
+        rollout_buffer.reset()
+
+        callback.on_rollout_start()
+
+        while n_steps < n_rollout_steps:
+            with torch.no_grad():
+                # Convert to pytorch tensor or to TensorDict
+                obs_tensor = torch.as_tensor(self._last_obs).to(self.device)
+                actions, values, log_probs = self.policy(obs_tensor)
+            actions = actions.cpu().numpy()
+
+            # Rescale and perform action
+            clipped_actions = actions
+            # Clip the actions to avoid out of bound error
+            if isinstance(self.action_space, gym.spaces.Box):
+                clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+
+            new_obs, rewards, dones, infos = env.step(clipped_actions)
+
+            self.num_timesteps += env.num_envs
+
+            # Give access to local variables
+            callback.update_locals(locals())
+            if callback.on_step() is False:
+                return False
+
+            self._update_info_buffer(infos)
+            n_steps += 1
+
+            if isinstance(self.action_space, gym.spaces.Discrete):
+                # Reshape in case of discrete action
+                actions = actions.reshape(-1, 1)
+
+            # Extract direction labels from environment info if available
+            direction_labels = None
+            if len(infos) > 0 and 'direction_label' in infos[0]:
+                direction_labels = np.array([info.get('direction_label', 8) for info in infos])  # 8 = None
+
+            rollout_buffer.add(
+                self._last_obs, 
+                actions, 
+                rewards, 
+                self._last_episode_starts, 
+                values, 
+                log_probs,
+                direction_label=direction_labels
+            )
+            self._last_obs = new_obs
+            self._last_episode_starts = dones
+
+        with torch.no_grad():
+            # Compute value for the last timestep
+            values = self.policy.predict_values(torch.as_tensor(new_obs).to(self.device))
+
+        rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
+
+        callback.on_rollout_end()
+
+        return True
 
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
+        Modified to include direction prediction auxiliary loss.
         """
         # Switch to train mode (this affects batch norm / dropout)
 
@@ -249,8 +405,9 @@ class CustomPPO(PPO):
             clip_range_vf = self.clip_range_vf(self._current_progress_remaining)  # type: ignore[operator]
 
         entropy_losses = []
-        pg_losses, value_losses = [], []
+        pg_losses, value_losses, direction_losses = [], [], []
         clip_fractions = []
+        direction_accuracies = []
 
         continue_training = True
         # train for n_epochs epochs
@@ -263,7 +420,7 @@ class CustomPPO(PPO):
                     # Convert discrete action from float to long
                     actions = rollout_data.actions.long().flatten()
 
-                values, log_prob, entropy = self.policy.evaluate_actions(rollout_data.observations, actions)
+                values, log_prob, entropy, direction_logits = self.policy.evaluate_actions(rollout_data.observations, actions)
                 values = values.flatten()
                 # Normalize advantage
                 advantages = rollout_data.advantages
@@ -306,7 +463,25 @@ class CustomPPO(PPO):
 
                 entropy_losses.append(entropy_loss.item())
 
-                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
+                # Direction prediction auxiliary loss
+                direction_loss = torch.tensor(0.0, device=self.device)
+                direction_accuracy = 0.0
+                if hasattr(rollout_data, 'direction_labels') and rollout_data.direction_labels is not None:
+                    direction_loss = self.direction_loss_fn(direction_logits, rollout_data.direction_labels)
+                    
+                    # Calculate accuracy
+                    with torch.no_grad():
+                        direction_pred = torch.argmax(direction_logits, dim=1)
+                        direction_accuracy = (direction_pred == rollout_data.direction_labels).float().mean().item()
+                    
+                    direction_losses.append(direction_loss.item())
+                    direction_accuracies.append(direction_accuracy)
+
+                # Total loss combines policy loss, value loss, entropy loss, and direction loss
+                loss = (policy_loss + 
+                       self.ent_coef * entropy_loss + 
+                       self.vf_coef * value_loss + 
+                       self.direction_weight * direction_loss)
 
                 # Calculate approximate form of reverse KL Divergence for early stopping
                 # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
@@ -340,6 +515,12 @@ class CustomPPO(PPO):
         self.logger.record("train/entropy_loss", np.mean(entropy_losses))
         self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         self.logger.record("train/value_loss", np.mean(value_losses))
+        
+        # Log direction prediction metrics
+        if direction_losses:
+            self.logger.record("train/direction_loss", np.mean(direction_losses))
+            self.logger.record("train/direction_accuracy", np.mean(direction_accuracies))
+        
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())

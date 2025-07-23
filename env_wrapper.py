@@ -610,6 +610,117 @@ class MineIronWrapper2(gym.Wrapper):
         return obs, reward, done, info
 
 
+def get_direction_label(player_pos, target_obj_id, semantic_map):
+    """
+    Calculate the direction label for the target object relative to the player.
+    
+    Args:
+        player_pos: (x, y) position of the player
+        target_obj_id: ID of the target object to focus on
+        semantic_map: semantic map from game info
+    
+    Returns:
+        direction_label: int from 0-8 representing direction
+                        0=up, 1=up-right, 2=right, 3=down-right, 
+                        4=down, 5=down-left, 6=left, 7=up-left, 8=none
+    """
+    # Find the closest target object
+    target_positions = []
+    
+    # Search in a reasonable range around the player
+    search_radius = 15  # Adjust based on your game view
+    px, py = player_pos
+    
+    for x in range(max(0, px - search_radius), min(semantic_map.shape[0], px + search_radius + 1)):
+        for y in range(max(0, py - search_radius), min(semantic_map.shape[1], py + search_radius + 1)):
+            if semantic_map[x, y] == target_obj_id:
+                target_positions.append((x, y))
+    
+    if not target_positions:
+        return 8  # None - no target object found
+    
+    # Find the closest target object
+    min_distance = float('inf')
+    closest_target = None
+    
+    for target_pos in target_positions:
+        distance = abs(target_pos[0] - px) + abs(target_pos[1] - py)  # Manhattan distance
+        if distance < min_distance:
+            min_distance = distance
+            closest_target = target_pos
+    
+    if closest_target is None:
+        return 8  # None
+    
+    # Calculate direction
+    dx = closest_target[0] - px
+    dy = closest_target[1] - py
+    
+    # If target is at the same position as player
+    if dx == 0 and dy == 0:
+        return 8  # None
+    
+    # Convert to direction label
+    # We use 8-direction system + none
+    if dx == 0:  # Vertical movement only
+        if dy > 0:
+            return 4  # down
+        else:
+            return 0  # up
+    elif dy == 0:  # Horizontal movement only  
+        if dx > 0:
+            return 2  # right
+        else:
+            return 6  # left
+    else:  # Diagonal movement
+        if dx > 0 and dy > 0:
+            return 3  # down-right
+        elif dx > 0 and dy < 0:
+            return 1  # up-right
+        elif dx < 0 and dy > 0:
+            return 5  # down-left
+        else:  # dx < 0 and dy < 0
+            return 7  # up-left
+
+
+class DirectionLabelWrapper(gym.Wrapper):
+    """
+    Wrapper that generates direction labels for the target object the agent should focus on.
+    The direction label indicates where the target object is relative to the player.
+    """
+    
+    def __init__(self, env, target_obj_id, target_obj_name="stone"):
+        super().__init__(env)
+        self.target_obj_id = target_obj_id  # e.g., 7 for stone
+        self.target_obj_name = target_obj_name
+        
+        # Modify observation space to include direction labels
+        self.observation_space = spaces.Dict({
+            'obs': env.observation_space,
+            'direction_label': spaces.Discrete(9)  # 9 classes: 8 directions + none
+        })
+    
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        # Initial direction label (no target visible)
+        dict_obs = {'obs': obs, 'direction_label': 8}  # 8 = None
+        return dict_obs
+    
+    def step(self, action):
+        obs, reward, terminated, info = self.env.step(action)
+        
+        # Calculate direction label
+        player_pos = info['player_pos']
+        semantic_map = info['semantic']
+        direction_label = get_direction_label(player_pos, self.target_obj_id, semantic_map)
+        
+        # Add direction label to info for use in training
+        info['direction_label'] = direction_label
+        
+        dict_obs = {'obs': obs, 'direction_label': direction_label}
+        return dict_obs, reward, terminated, info
+
+
 def call_wrapper(env, wrapper_list, init_wrapper_params):
 
     for wrapper in wrapper_list:
