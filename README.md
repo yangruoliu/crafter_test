@@ -66,3 +66,4 @@ pip install -r requirements.txt
 echo $DEEPSEEK_API_KEY
 ```
 如果输出为您的api_key则代表环境变量成功设置
+# crafter_test
