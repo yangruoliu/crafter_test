@@ -14,7 +14,7 @@ from tqdm import tqdm
 from stable_baselines3 import PPO
 from gym import spaces
 from stable_baselines3.common.buffers import DictRolloutBuffer
-from stable_baselines3.common.utils import FloatSchedule, explained_variance
+from stable_baselines3.common.utils import  explained_variance
 
 
 
@@ -80,7 +80,15 @@ class CustomResNet(BaseFeaturesExtractor):
         nn.init.constant_(self.dense_net[-2].bias, 0)
 
     def forward(self, observations) -> torch.Tensor:
-        features = self.conv_net(observations['obs'])
+        obs = observations['obs']
+        
+        # 确保输入是 4D: [B, C, H, W]
+        if obs.dim() == 5:  # [B, N, C, H, W] -> [B*N, C, H, W]
+            obs = obs.view(-1, *obs.shape[-3:])
+        elif obs.dim() == 3:  # [C, H, W] -> [1, C, H, W]
+            obs = obs.unsqueeze(0)
+        
+        features = self.conv_net(obs)
         return self.dense_net(features)
 
 
@@ -171,7 +179,7 @@ class EWMARolloutBuffer(DictRolloutBuffer):
         Reset the rollout buffer.
         """
         super().reset()
-        self.direction_labels = np.zeros((self.buffer_size, self.n_envs), dtype=np.long)
+        self.direction_labels = np.zeros((self.buffer_size, self.n_envs), dtype=np.int64)
 
     def add(
         self,
@@ -332,10 +340,12 @@ class CustomPPO(PPO):
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
-            with torch.no_grad():
-                # Convert to pytorch tensor or to TensorDict
+           with torch.no_grad():
+            if isinstance(self._last_obs, dict):
+                obs_tensor = to_tensor_dict(self._last_obs, self.device)
+            else:
                 obs_tensor = torch.as_tensor(self._last_obs).to(self.device)
-                actions, values, log_probs = self.policy(obs_tensor)
+            actions, values, log_probs = self.policy(obs_tensor)
             actions = actions.cpu().numpy()
 
             # Rescale and perform action
@@ -379,7 +389,11 @@ class CustomPPO(PPO):
 
         with torch.no_grad():
             # Compute value for the last timestep
-            values = self.policy.predict_values(torch.as_tensor(new_obs).to(self.device))
+            if isinstance(new_obs, dict):
+                obs_tensor = to_tensor_dict(new_obs, self.device)
+            else:
+                obs_tensor = torch.as_tensor(new_obs).to(self.device)
+            values = self.policy.predict_values(obs_tensor)
 
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
 
@@ -568,3 +582,12 @@ class TQDMProgressBar(BaseCallback):
     def _on_training_end(self):
         # Close progress bar
         self.pbar.close()
+
+def to_tensor_dict(obs_dict, device):
+    result = {}
+    for k, v in obs_dict.items():
+        tensor = torch.as_tensor(v).to(device)
+        if k == 'obs' and tensor.dim() == 5:  # 修正5D到4D
+            tensor = tensor.view(-1, *tensor.shape[-3:])
+        result[k] = tensor
+    return result

@@ -3,6 +3,7 @@ from config import SYS_PROMPT
 from openai import OpenAI
 import os
 
+#sk-a82539b067ad4a64967adce8747bd530
 
 def llm_chat(prompt, system_prompt = SYS_PROMPT, model="qwen2.5:7b"):
 
@@ -22,7 +23,8 @@ def llm_chat(prompt, system_prompt = SYS_PROMPT, model="qwen2.5:7b"):
 
     if model == "deepseek-chat":
 
-        api_key = os.getenv("DEEPSEEK_API_KEY")
+        #api_key = os.getenv("DEEPSEEK_API_KEY")
+        api_key = "sk-a82539b067ad4a64967adce8747bd530"
 
         if not api_key:
             raise ValueError("No DEEPSEEK_API_KEY is defined")
