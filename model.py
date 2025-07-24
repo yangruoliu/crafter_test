@@ -9,7 +9,7 @@ import numpy as np
 from stable_baselines3.common.buffers import RolloutBuffer
 from tqdm import tqdm
 from stable_baselines3 import PPO
-from stable_baselines3.common.utils import FloatSchedule, explained_variance
+from stable_baselines3.common.utils import explained_variance
 from gym import spaces
 
 
