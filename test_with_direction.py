@@ -96,6 +96,15 @@ def test_with_direction_prediction(env, model, num_episodes, render=True, show_d
             else:
                 true_direction = 8  # Default to None if not available
 
+            # 确保 action 是标量整数
+            if isinstance(action, np.ndarray):
+                action = int(action.item())
+            elif hasattr(action, '__len__') and len(action) == 1:
+                action = int(action[0])
+            else:
+                action = int(action)
+                
+                
             obs, reward, done, info = env.step(action)
             episode_reward += reward
 

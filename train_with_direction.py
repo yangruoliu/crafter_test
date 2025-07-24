@@ -9,13 +9,14 @@ from gym.wrappers import FrameStack
 import numpy as np
 import os
 from stable_baselines3.common.callbacks import BaseCallback
-
+import time
+timestamp = time.strftime("%Y%m%d_%H%M%S")
 
 if __name__ == "__main__":
 
     config = {
-        "total_timesteps": 1000000,
-        "save_dir": "./stone_with_direction",
+        "total_timesteps": 2000000,
+        "save_dir": f"./stone_with_direction_{timestamp}",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
         "target_obj_id": 7,  # Stone object ID
