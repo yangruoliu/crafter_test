@@ -64,7 +64,9 @@ if __name__ == "__main__":
         max_grad_norm=0.5,
         verbose=1,
         normalize_advantage=False,
-        direction_weight=config["direction_weight"]  # Weight for direction prediction auxiliary loss
+        direction_weight=config["direction_weight"],  # Weight for direction prediction auxiliary loss
+        loss_normalization=True,  # Enable loss normalization
+        norm_decay=0.99  # Decay factor for moving averages
     )
 
     total_timesteps = config["total_timesteps"]
