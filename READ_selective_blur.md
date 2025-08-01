@@ -118,3 +118,7 @@ CUDA_VISIBLE_DEVICES=1 python train_with_blur.py
 # 测试并录制视频
 CUDA_VISIBLE_DEVICES=1 python test_with_blur.py
 ```
+# 个人记录
+
+https://www.notion.so/crafter-23c1cc31a6428091b068ef91189906b9?source=copy_link
+
