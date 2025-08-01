@@ -26,7 +26,7 @@ class MetadataFixWrapper(gym.Wrapper):
             }
 
 class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
-    """带render方法的SelectiveBlurWrapper"""
+    """带render方法的SelectiveBlurWrapper - 保存原始和blur图像"""
     def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=5):
         super().__init__(env, target_obj_id, target_obj_name, blur_strength)
         # 确保metadata正确传递
@@ -35,29 +35,71 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
                 'render_modes': ['rgb_array'],
                 'render_fps': 30
             }
+        # 保存原始和处理后的图像
+        self._last_original_obs = None
+        self._last_blurred_obs = None
     
     def render(self, size=None):
-        """返回blur处理后的图像 - 关键修复：使用step中处理过的观察结果"""
-        # 如果有最近处理的观察结果，直接返回（这是blur处理后的）
-        if hasattr(self, '_last_obs') and self._last_obs is not None:
-            return self._last_obs
-        
-        # 否则获取原始图像
+        """返回blur处理后的图像"""
+        if hasattr(self, '_last_blurred_obs') and self._last_blurred_obs is not None:
+            return self._last_blurred_obs
         return self.env.render(size)
     
+    def get_original_obs(self):
+        """获取原始观察结果"""
+        return self._last_original_obs
+    
     def step(self, action):
-        """重写step方法，保存blur处理结果"""
-        obs, reward, done, info = super().step(action)
+        """重写step方法，同时保存原始和blur处理的图像"""
+        # 先获取原始观察结果
+        original_obs, reward, done, info = self.env.step(action)
         
-        # 保存处理后的观察结果，用于渲染
-        self._last_obs = obs.copy()
+        # 保存原始图像
+        self._last_original_obs = original_obs.copy()
         
-        return obs, reward, done, info
+        # 获取必要的游戏信息
+        semantic_map = info.get('semantic', None)
+        player_pos = info.get('player_pos', [32, 32])
+        view_size = info.get('view', [9, 9])
+        
+        if semantic_map is not None:
+            try:
+                # 创建目标物体遮罩
+                target_mask = self._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
+                
+                # 应用选择性模糊
+                blurred_obs = self._apply_selective_blur(original_obs, target_mask)
+                
+                # 保存blur处理后的图像
+                self._last_blurred_obs = blurred_obs.copy()
+                
+                # 添加调试信息
+                target_found = np.sum(target_mask) > 0
+                info['selective_blur'] = {
+                    'target_obj_id': self.target_obj_id,
+                    'target_obj_name': self.target_obj_name,
+                    'target_found': target_found,
+                    'target_pixels': int(np.sum(target_mask)),
+                    'blur_strength': self.blur_strength
+                }
+                
+                return blurred_obs, reward, done, info
+                
+            except Exception as e:
+                print(f"SelectiveBlurWrapper error: {e}")
+                # 如果处理失败，返回原图像
+                self._last_blurred_obs = original_obs.copy()
+                return original_obs, reward, done, info
+        
+        # 如果没有语义地图，原样返回
+        self._last_blurred_obs = original_obs.copy()
+        return original_obs, reward, done, info
     
     def reset(self, **kwargs):
         """重置时清除缓存"""
-        obs = super().reset(**kwargs)
-        self._last_obs = obs.copy()
+        obs = self.env.reset(**kwargs)
+        self._last_original_obs = obs.copy()
+        self._last_blurred_obs = obs.copy()
         return obs
 
 def fix_metadata_chain(env):
@@ -131,7 +173,7 @@ def create_comparison_image(original, blurred, mask, target_name, step_count):
     """
     创建对比图像：原图 | blur图 | mask
     """
-    h, w = blurred.shape[:2]
+    h, w = original.shape[:2]
     
     # 创建mask可视化（放大到与原图相同尺寸）
     mask_visual = np.zeros((h, w, 3), dtype=np.uint8)
@@ -304,8 +346,8 @@ def main():
     if args.save_video:
         try:
             print("Initializing video recording...")
-            # 获取第一帧来确定视频尺寸 - 关键修复：使用obs而不是render()
-            initial_frame = obs.copy()  # 使用step返回的观察结果（已blur处理）
+            # 获取第一帧来确定视频尺寸
+            initial_frame = obs.copy()
             print(f"Initial frame shape: {initial_frame.shape}")
             
             if size != args.window:
@@ -354,24 +396,27 @@ def main():
     
     try:
         while running:
-            # Rendering - 关键修复：直接使用obs而不是render()
+            # Rendering - 获取原始和blur图像
             try:
-                # 使用当前观察结果（已经是blur处理后的）
-                current_obs = obs.copy()
+                # 获取原始图像和blur图像
+                original_obs = env.get_original_obs() if hasattr(env, 'get_original_obs') else obs
+                blurred_obs = obs  # step返回的是blur处理后的观察结果
                 
                 # 调整大小
                 if size != args.window:
-                    display_image = Image.fromarray(current_obs)
-                    display_image = display_image.resize(args.window, resample=Image.NEAREST)
-                    display_image = np.array(display_image)
-                else:
-                    display_image = current_obs
-                
-                # 准备对比显示
-                if show_comparison:
-                    # 获取原始图像用于对比（这里假设可以获取到）
-                    original_image = display_image  # 在实际中，你可能需要保存原始图像
+                    original_display = Image.fromarray(original_obs)
+                    original_display = original_display.resize(args.window, resample=Image.NEAREST)
+                    original_display = np.array(original_display)
                     
+                    blurred_display = Image.fromarray(blurred_obs)
+                    blurred_display = blurred_display.resize(args.window, resample=Image.NEAREST)
+                    blurred_display = np.array(blurred_display)
+                else:
+                    original_display = original_obs
+                    blurred_display = blurred_obs
+                
+                # 准备显示图像
+                if show_comparison:
                     # 获取当前mask
                     current_mask = None
                     if last_info is not None:
@@ -381,10 +426,19 @@ def main():
                             player_pos = last_info.get('player_pos', [32, 32])
                             view_size = last_info.get('view', [9, 9])
                             if semantic_map is not None:
-                                current_mask = env._get_target_mask(semantic_map, player_pos, view_size, current_obs.shape)
+                                current_mask = env._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
                     
-                    # 创建对比图像
-                    display_image = create_comparison_image(original_image, display_image, current_mask, args.target_obj_name, step_count)
+                    # 创建对比图像：原图 | blur图 | mask
+                    display_image = create_comparison_image(
+                        original_display, 
+                        blurred_display, 
+                        current_mask, 
+                        args.target_obj_name, 
+                        step_count
+                    )
+                else:
+                    # 只显示blur图像
+                    display_image = blurred_display
                 
                 # 显示到pygame窗口
                 surface = pygame.surfarray.make_surface(display_image.transpose((1, 0, 2)))
