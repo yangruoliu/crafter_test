@@ -25,17 +25,17 @@ def train_with_selective_blur():
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     
     config = {
-        "total_timesteps": 1000000,
-        "save_dir": os.path.join("RL_models", f"stone_with_blur_{timestamp}"),
+        "total_timesteps": 2000000,
+        "save_dir": os.path.join("RL_models_zdl", f"stone_with_blur_{timestamp}"),
         "model_name": f"stone_with_blur_{timestamp}",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
         "target_obj_id": 3,        # Stone ID
         "target_obj_name": "stone",
-        "blur_strength": 7         # Blur strength
+        "blur_strength": 2         # Blur strength
     }
 
-    os.makedirs("RL_models", exist_ok=True)
+    os.makedirs("RL_models_zdl", exist_ok=True)
 
     print("=== Starting selective blur training ===")
     print(f"Target object: {config['target_obj_name']} (ID: {config['target_obj_id']})")

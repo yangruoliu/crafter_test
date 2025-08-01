@@ -72,7 +72,7 @@ if __name__ == "__main__":
         "recorder_res_path": "base_model_res",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
-        "render": False,
+        "render": True,
         "stack_size": 1,
         "model_name": "stone"
     }
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         env = crafter.Recorder(
             env, config["recorder_res_path"],
             save_stats = False,
-            save_video = False,
+            save_video = true,
             save_episode = False,
         )
     env = env_wrapper.InitWrapper(env, init_items=config["init_items"], init_num=config["init_num"])

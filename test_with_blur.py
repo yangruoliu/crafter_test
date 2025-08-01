@@ -252,7 +252,7 @@ def compare_with_without_blur():
         "target_obj_id": 3,
         "target_obj_name": "stone",
         "blur_strength": 1,
-        "blur_model_name": find_blur_model(),
+        "blur_model_name": "stone_with_blur_20250730_154737",
         "original_model_name": "stone" 
     }
 
@@ -339,14 +339,14 @@ def compare_with_without_blur():
 def main():
     """Main test function"""
     config = {
-        "test_episodes": 5,
+        "test_episodes": 10,
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
         "target_obj_id": 3,
         "target_obj_name": "stone",
         "blur_strength": 7,
         "model_name": None,  # Will be auto-selected
-        "render": False,
+        "render": True,
         "compare_mode": True,
         "save_video": True,
         "video_dir": "test_videos"
@@ -374,7 +374,7 @@ def main():
         
         # Auto-select model
         if config["model_name"] is None:
-            config["model_name"] = find_blur_model()
+            config["model_name"] = "stone_with_blur_20250730_154737"
         
         # Load model
         try:

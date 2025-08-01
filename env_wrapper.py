@@ -751,7 +751,7 @@ class SelectiveBlurWrapper(gym.Wrapper):
     4. 保持目标物体区域清晰
     """
     
-    def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=15):
+    def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=5):
         """
         初始化选择性模糊包装器
         
@@ -774,9 +774,9 @@ class SelectiveBlurWrapper(gym.Wrapper):
             16: 'skeleton', 17: 'arrow', 18: 'plant'
         }
         
-        print(f"SelectiveBlurWrapper initialized:")
-        print(f"  Target object: {target_obj_name} (ID: {target_obj_id})")
-        print(f"  Blur strength: {blur_strength}")
+        # print(f"SelectiveBlurWrapper initialized:")
+        # print(f"  Target object: {target_obj_name} (ID: {target_obj_id})")
+        # print(f"  Blur strength: {blur_strength}")
 
     def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
         """
