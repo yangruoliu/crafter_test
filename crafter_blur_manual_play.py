@@ -9,6 +9,7 @@ try:
 except ImportError:
     print('Please install the pygame package to use the GUI.')
     raise
+
 from PIL import Image
 import env_wrapper
 import gym
@@ -26,7 +27,7 @@ class MetadataFixWrapper(gym.Wrapper):
             }
 
 class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
-    """带render方法的SelectiveBlurWrapper - 保存原始和blur图像"""
+    """带render方法的SelectiveBlurWrapper - 保存原始和blur图像，修复坐标问题"""
     def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=5):
         super().__init__(env, target_obj_id, target_obj_name, blur_strength)
         # 确保metadata正确传递
@@ -38,6 +39,47 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         # 保存原始和处理后的图像
         self._last_original_obs = None
         self._last_blurred_obs = None
+        self._last_mask = None
+    
+    def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
+        """
+        重写目标物体遮罩创建方法，修复坐标系问题
+        """
+        px, py = player_pos
+        view_w, view_h = view_size
+        
+        # 计算视野范围
+        half_w, half_h = view_w // 2, view_h // 2
+        x1 = max(0, px - half_w)
+        y1 = max(0, py - half_h)
+        x2 = min(semantic_map.shape[0], px + half_w + 1)
+        y2 = min(semantic_map.shape[1], py + half_h + 1)
+        
+        # 提取视野区域的语义地图
+        view_semantic = semantic_map[x1:x2, y1:y2]
+        
+        # 创建目标物体遮罩
+        target_positions = (view_semantic == self.target_obj_id)
+        semantic_mask = target_positions.astype(np.uint8)
+        
+        # 将语义遮罩缩放到图像尺寸
+        img_h, img_w = image_shape[:2]
+        if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
+            # 直接转置：语义地图通常是 [y, x] 格式，需要转换为 [x, y] 格式以匹配图像
+            # 或者根据具体的坐标系约定进行调整
+            semantic_mask = semantic_mask.T  # 直接转置
+            
+            target_mask = cv2.resize(
+                semantic_mask.astype(np.float32),
+                (img_w, img_h),  # OpenCV格式: (width, height)
+                interpolation=cv2.INTER_NEAREST  # 使用NEAREST避免插值导致的问题
+            )
+            # 应用阈值以保持二值特性
+            target_mask = (target_mask > 0.5).astype(np.uint8)
+        else:
+            target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
+        
+        return target_mask
     
     def render(self, size=None):
         """返回blur处理后的图像"""
@@ -48,6 +90,10 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
     def get_original_obs(self):
         """获取原始观察结果"""
         return self._last_original_obs
+    
+    def get_last_mask(self):
+        """获取最后的mask"""
+        return self._last_mask
     
     def step(self, action):
         """重写step方法，同时保存原始和blur处理的图像"""
@@ -66,6 +112,7 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
             try:
                 # 创建目标物体遮罩
                 target_mask = self._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
+                self._last_mask = target_mask.copy()
                 
                 # 应用选择性模糊
                 blurred_obs = self._apply_selective_blur(original_obs, target_mask)
@@ -89,10 +136,12 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
                 print(f"SelectiveBlurWrapper error: {e}")
                 # 如果处理失败，返回原图像
                 self._last_blurred_obs = original_obs.copy()
+                self._last_mask = np.ones((original_obs.shape[0], original_obs.shape[1]), dtype=np.uint8)
                 return original_obs, reward, done, info
         
         # 如果没有语义地图，原样返回
         self._last_blurred_obs = original_obs.copy()
+        self._last_mask = np.ones((original_obs.shape[0], original_obs.shape[1]), dtype=np.uint8)
         return original_obs, reward, done, info
     
     def reset(self, **kwargs):
@@ -100,6 +149,7 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         obs = self.env.reset(**kwargs)
         self._last_original_obs = obs.copy()
         self._last_blurred_obs = obs.copy()
+        self._last_mask = np.ones((obs.shape[0], obs.shape[1]), dtype=np.uint8)
         return obs
 
 def fix_metadata_chain(env):
@@ -178,24 +228,34 @@ def create_comparison_image(original, blurred, mask, target_name, step_count):
     # 创建mask可视化（放大到与原图相同尺寸）
     mask_visual = np.zeros((h, w, 3), dtype=np.uint8)
     if mask is not None:
-        # 将mask从小尺寸放大到原图尺寸
-        mask_resized = cv2.resize(mask.astype(np.float32), (w, h), interpolation=cv2.INTER_NEAREST)
+        # 确保mask尺寸正确
+        if mask.shape != (h, w):
+            print(f"Warning: Mask shape {mask.shape} != image shape {(h, w)}, resizing...")
+            mask_resized = cv2.resize(
+                mask.astype(np.float32), 
+                (w, h),  # OpenCV格式: (width, height)
+                interpolation=cv2.INTER_NEAREST
+            )
+        else:
+            mask_resized = mask.astype(np.float32)
+        
         # 创建颜色映射：0=红色(模糊区域)，1=绿色(清晰区域)
-        mask_visual[:, :, 0] = (1 - mask_resized) * 255  # 红色通道
-        mask_visual[:, :, 1] = mask_resized * 255         # 绿色通道
+        mask_visual[:, :, 0] = (1 - mask_resized) * 255  # 红色通道：模糊区域
+        mask_visual[:, :, 1] = mask_resized * 255         # 绿色通道：清晰区域
+        mask_visual[:, :, 2] = 0                          # 蓝色通道：始终为0
     
     # 水平拼接三个图像
     comparison = np.hstack([original, blurred, mask_visual])
     
     # 添加文字标签
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.7
+    font_scale = 0.5
     color = (255, 255, 255)
-    thickness = 2
+    thickness = 1
     
-    cv2.putText(comparison, "Original", (10, 30), font, font_scale, color, thickness)
-    cv2.putText(comparison, "Blurred", (w + 10, 30), font, font_scale, color, thickness)
-    cv2.putText(comparison, "Mask", (2*w + 10, 30), font, font_scale, color, thickness)
+    cv2.putText(comparison, "Original", (10, 20), font, font_scale, color, thickness)
+    cv2.putText(comparison, "Blurred", (w + 10, 20), font, font_scale, color, thickness)
+    cv2.putText(comparison, "Mask (R=blur, G=clear)", (2*w + 10, 20), font, font_scale, color, thickness)
     cv2.putText(comparison, f"Step {step_count} - {target_name}", (10, h - 10), font, font_scale, color, thickness)
     
     return comparison
@@ -396,11 +456,12 @@ def main():
     
     try:
         while running:
-            # Rendering - 获取原始和blur图像
+            # Rendering - 获取原始、blur图像和mask
             try:
                 # 获取原始图像和blur图像
                 original_obs = env.get_original_obs() if hasattr(env, 'get_original_obs') else obs
                 blurred_obs = obs  # step返回的是blur处理后的观察结果
+                current_mask = env.get_last_mask() if hasattr(env, 'get_last_mask') else None
                 
                 # 调整大小
                 if size != args.window:
@@ -417,22 +478,11 @@ def main():
                 
                 # 准备显示图像
                 if show_comparison:
-                    # 获取当前mask
-                    current_mask = None
-                    if last_info is not None:
-                        blur_info = last_info.get('selective_blur', None)
-                        if blur_info is not None:
-                            semantic_map = last_info.get('semantic', None)
-                            player_pos = last_info.get('player_pos', [32, 32])
-                            view_size = last_info.get('view', [9, 9])
-                            if semantic_map is not None:
-                                current_mask = env._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
-                    
                     # 创建对比图像：原图 | blur图 | mask
                     display_image = create_comparison_image(
                         original_display, 
                         blurred_display, 
-                        current_mask, 
+                        current_mask,  # 使用直接获取的mask
                         args.target_obj_name, 
                         step_count
                     )
