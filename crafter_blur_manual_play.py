@@ -35,33 +35,30 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
                 'render_modes': ['rgb_array'],
                 'render_fps': 30
             }
-        self.last_original_image = None
-        self.last_blurred_image = None
     
     def render(self, size=None):
-        """返回blur处理后的图像"""
-        # 获取原始图像
-        original_image = self.env.render(size)
-        self.last_original_image = original_image.copy()
+        """返回blur处理后的图像 - 关键修复：使用step中处理过的观察结果"""
+        # 如果有最近处理的观察结果，直接返回（这是blur处理后的）
+        if hasattr(self, '_last_obs') and self._last_obs is not None:
+            return self._last_obs
         
-        # 如果有最近的blur处理，应用到渲染图像
-        if hasattr(self, '_last_processed_obs') and self._last_processed_obs is not None:
-            # 确保尺寸匹配
-            if self._last_processed_obs.shape == original_image.shape:
-                self.last_blurred_image = self._last_processed_obs.copy()
-                return self._last_processed_obs
-        
-        self.last_blurred_image = original_image.copy()
-        return original_image
+        # 否则获取原始图像
+        return self.env.render(size)
     
     def step(self, action):
         """重写step方法，保存blur处理结果"""
         obs, reward, done, info = super().step(action)
         
         # 保存处理后的观察结果，用于渲染
-        self._last_processed_obs = obs.copy()
+        self._last_obs = obs.copy()
         
         return obs, reward, done, info
+    
+    def reset(self, **kwargs):
+        """重置时清除缓存"""
+        obs = super().reset(**kwargs)
+        self._last_obs = obs.copy()
+        return obs
 
 def fix_metadata_chain(env):
     """修复整个wrapper链的metadata"""
@@ -90,6 +87,7 @@ def print_blur_matrix(mask, step_count, target_name, target_found, target_pixels
     print(f"\n{'='*50}")
     print(f"Step {step_count} - Blur Mask Matrix")
     print(f"Target: {target_name} | Found: {target_found} | Pixels: {target_pixels}")
+    print(f"Matrix shape: {mask.shape} (Height={mask.shape[0]}, Width={mask.shape[1]})")
     print(f"{'='*50}")
     
     # 打印矩阵（每行显示）
@@ -98,7 +96,6 @@ def print_blur_matrix(mask, step_count, target_name, target_found, target_pixels
         print(f"Row {i:2d}: {row_str}")
     
     print(f"{'='*50}")
-    print(f"Matrix shape: {mask.shape}")
     print(f"Clear pixels (1): {np.sum(mask)} | Blur pixels (0): {mask.size - np.sum(mask)}")
     print(f"{'='*50}\n")
 
@@ -117,6 +114,7 @@ def save_blur_matrix(mask, step_count, target_name, target_found, target_pixels,
     with open(txt_file, 'w') as f:
         f.write(f"Step {step_count} - Blur Mask Matrix\n")
         f.write(f"Target: {target_name} | Found: {target_found} | Pixels: {target_pixels}\n")
+        f.write(f"Matrix shape: {mask.shape} (Height={mask.shape[0]}, Width={mask.shape[1]})\n")
         f.write("=" * 50 + "\n")
         
         for i, row in enumerate(mask):
@@ -124,7 +122,6 @@ def save_blur_matrix(mask, step_count, target_name, target_found, target_pixels,
             f.write(f"Row {i:2d}: {row_str}\n")
         
         f.write("=" * 50 + "\n")
-        f.write(f"Matrix shape: {mask.shape}\n")
         f.write(f"Clear pixels (1): {np.sum(mask)} | Blur pixels (0): {mask.size - np.sum(mask)}\n")
         f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
@@ -134,7 +131,7 @@ def create_comparison_image(original, blurred, mask, target_name, step_count):
     """
     创建对比图像：原图 | blur图 | mask
     """
-    h, w = original.shape[:2]
+    h, w = blurred.shape[:2]
     
     # 创建mask可视化（放大到与原图相同尺寸）
     mask_visual = np.zeros((h, w, 3), dtype=np.uint8)
@@ -179,7 +176,7 @@ def main():
     # Blur相关参数
     parser.add_argument('--target_obj_id', type=int, default=3, help='Target object ID (3=stone, 8=coal, 9=iron)')
     parser.add_argument('--target_obj_name', type=str, default='stone', help='Target object name')
-    parser.add_argument('--blur_strength', type=int, default=21, help='Blur strength (must be odd)')  # 增加默认强度
+    parser.add_argument('--blur_strength', type=int, default=21, help='Blur strength (must be odd)')
     parser.add_argument('--save_matrices', type=boolean, default=True, help='Save blur matrices to files')
     parser.add_argument('--matrix_save_dir', type=str, default='blur_matrices', help='Directory to save matrices')
     
@@ -283,7 +280,7 @@ def main():
     
     # 重置环境
     print("Resetting environment...")
-    env.reset()
+    obs = env.reset()
     print("Environment reset complete")
     
     achievements = set()
@@ -307,8 +304,8 @@ def main():
     if args.save_video:
         try:
             print("Initializing video recording...")
-            # 获取第一帧来确定视频尺寸
-            initial_frame = env.render(size)
+            # 获取第一帧来确定视频尺寸 - 关键修复：使用obs而不是render()
+            initial_frame = obs.copy()  # 使用step返回的观察结果（已blur处理）
             print(f"Initial frame shape: {initial_frame.shape}")
             
             if size != args.window:
@@ -357,28 +354,24 @@ def main():
     
     try:
         while running:
-            # Rendering.
+            # Rendering - 关键修复：直接使用obs而不是render()
             try:
-                # 获取blur处理后的图像
-                blurred_image = env.render(size)
+                # 使用当前观察结果（已经是blur处理后的）
+                current_obs = obs.copy()
                 
-                # 获取原始图像（如果可能）
-                if hasattr(env, 'last_original_image') and env.last_original_image is not None:
-                    original_image = env.last_original_image
-                else:
-                    original_image = blurred_image
-                
+                # 调整大小
                 if size != args.window:
-                    blurred_image = Image.fromarray(blurred_image)
-                    blurred_image = blurred_image.resize(args.window, resample=Image.NEAREST)
-                    blurred_image = np.array(blurred_image)
-                    
-                    original_image = Image.fromarray(original_image)
-                    original_image = original_image.resize(args.window, resample=Image.NEAREST)
-                    original_image = np.array(original_image)
+                    display_image = Image.fromarray(current_obs)
+                    display_image = display_image.resize(args.window, resample=Image.NEAREST)
+                    display_image = np.array(display_image)
+                else:
+                    display_image = current_obs
                 
-                # 准备显示图像
+                # 准备对比显示
                 if show_comparison:
+                    # 获取原始图像用于对比（这里假设可以获取到）
+                    original_image = display_image  # 在实际中，你可能需要保存原始图像
+                    
                     # 获取当前mask
                     current_mask = None
                     if last_info is not None:
@@ -388,13 +381,10 @@ def main():
                             player_pos = last_info.get('player_pos', [32, 32])
                             view_size = last_info.get('view', [9, 9])
                             if semantic_map is not None:
-                                current_mask = env._get_target_mask(semantic_map, player_pos, view_size, blurred_image.shape)
+                                current_mask = env._get_target_mask(semantic_map, player_pos, view_size, current_obs.shape)
                     
                     # 创建对比图像
-                    display_image = create_comparison_image(original_image, blurred_image, current_mask, args.target_obj_name, step_count)
-                else:
-                    # 只显示blur图像
-                    display_image = blurred_image
+                    display_image = create_comparison_image(original_image, display_image, current_mask, args.target_obj_name, step_count)
                 
                 # 显示到pygame窗口
                 surface = pygame.surfarray.make_surface(display_image.transpose((1, 0, 2)))
@@ -528,7 +518,7 @@ def main():
                         running = False
                     if args.death == 'reset':
                         print('\nStarting a new episode.')
-                        env.reset()
+                        obs = env.reset()
                         achievements = set()
                         was_done = False
                         duration = 0
@@ -547,8 +537,7 @@ def main():
                         view_size = last_info.get('view', [9, 9])
                         
                         if semantic_map is not None:
-                            current_obs = env.render()
-                            mask = env._get_target_mask(semantic_map, player_pos, view_size, current_obs.shape)
+                            mask = env._get_target_mask(semantic_map, player_pos, view_size, obs.shape)
                             
                             target_name = args.target_obj_name
                             target_found = np.sum(mask) > 0
