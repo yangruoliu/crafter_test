@@ -759,7 +759,7 @@ class SelectiveBlurWrapper(gym.Wrapper):
             env: 被包装的环境
             target_obj_id: 目标物体的ID (例如: 3=stone, 8=coal, 9=iron)
             target_obj_name: 目标物体名称 (用于调试)
-            blur_strength: 模糊强度，必须是奇数 (默认15)
+            blur_strength: 模糊强度，设置为是奇数 (默认5) why?
         """
         super().__init__(env)
         self.target_obj_id = target_obj_id
@@ -811,6 +811,8 @@ class SelectiveBlurWrapper(gym.Wrapper):
         # 将语义遮罩缩放到图像尺寸
         img_h, img_w = image_shape[:2]
         if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
+            semantic_mask = semantic_mask.T
+            
             target_mask = cv2.resize(
                 semantic_mask.astype(np.float32),
                 (img_w, img_h),
