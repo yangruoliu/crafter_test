@@ -22,7 +22,7 @@ timestamp = time.strftime("%Y%m%d_%H%M%S")
 if __name__ == "__main__":
 
     config = {
-        "total_timesteps": 2000000,
+        "total_timesteps": 1000000,
         "save_dir": f"./stone_with_direction_fixed_{timestamp}",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],

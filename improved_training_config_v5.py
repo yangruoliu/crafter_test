@@ -22,7 +22,7 @@ timestamp = time.strftime("%Y%m%d_%H%M%S")
 if __name__ == "__main__":
 
     config = {
-        "total_timesteps": 3000000,  # 增加训练步数
+        "total_timesteps": 1000000,  # 增加训练步数
         "save_dir": f"./stone_with_direction_v5_{timestamp}",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
