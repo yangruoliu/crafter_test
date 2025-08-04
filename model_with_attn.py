@@ -447,7 +447,7 @@ class CustomPPO(PPO):
         adaptive_direction_weight = (direction_cov_smooth / total_cov) * base_direction_weight
         
         # Ensure minimum weights to prevent complete suppression
-        min_weight = 0.01
+        min_weight = 0.1  # 增加最小权重保护，确保每个损失都有足够参与度
         adaptive_policy_weight = max(min_weight * base_policy_weight, adaptive_policy_weight)
         adaptive_value_weight = max(min_weight * base_value_weight, adaptive_value_weight)
         adaptive_entropy_weight = max(min_weight * base_entropy_weight, adaptive_entropy_weight)
