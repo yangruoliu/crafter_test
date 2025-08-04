@@ -447,11 +447,34 @@ class CustomPPO(PPO):
         adaptive_direction_weight = (direction_cov_smooth / total_cov) * base_direction_weight
         
         # Ensure minimum weights to prevent complete suppression
-        min_weight = 0.1  # 增加最小权重保护，确保每个损失都有足够参与度
+        min_weight = 0.15  # 增加最小权重保护，确保每个损失都有足够参与度
         adaptive_policy_weight = max(min_weight * base_policy_weight, adaptive_policy_weight)
         adaptive_value_weight = max(min_weight * base_value_weight, adaptive_value_weight)
         adaptive_entropy_weight = max(min_weight * base_entropy_weight, adaptive_entropy_weight)
         adaptive_direction_weight = max(min_weight * base_direction_weight, adaptive_direction_weight)
+        
+        # Add maximum weight limit to prevent single loss domination
+        max_single_weight = 0.4  # 防止任何单一损失超过40%
+        adaptive_policy_weight = min(max_single_weight, adaptive_policy_weight)
+        adaptive_value_weight = min(max_single_weight, adaptive_value_weight)
+        adaptive_entropy_weight = min(max_single_weight, adaptive_entropy_weight)
+        adaptive_direction_weight = min(max_single_weight, adaptive_direction_weight)
+        
+        # Renormalize weights to ensure they sum to reasonable total
+        total_weight = (adaptive_policy_weight + adaptive_value_weight + 
+                       adaptive_entropy_weight + adaptive_direction_weight)
+        
+        if total_weight > 0:
+            adaptive_policy_weight /= total_weight
+            adaptive_value_weight /= total_weight
+            adaptive_entropy_weight /= total_weight
+            adaptive_direction_weight /= total_weight
+        
+        # Apply final scaling with base weights
+        adaptive_policy_weight *= base_policy_weight
+        adaptive_value_weight *= base_value_weight
+        adaptive_entropy_weight *= base_entropy_weight
+        adaptive_direction_weight *= base_direction_weight
         
         return (policy_loss_norm, value_loss_norm, entropy_loss_norm, direction_loss_norm,
                 adaptive_policy_weight, adaptive_entropy_weight, adaptive_value_weight, adaptive_direction_weight)
