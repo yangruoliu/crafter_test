@@ -407,19 +407,51 @@ class CustomPPO(PPO):
         direction_loss_norm = direction_loss / (self.direction_loss_ma + eps)
         
         # Calculate coefficient of variation for adaptive weighting
-        policy_cov = (self.policy_loss_var ** 0.5) / (self.policy_loss_ma + eps)
-        value_cov = (self.value_loss_var ** 0.5) / (self.value_loss_ma + eps)
-        entropy_cov = (self.entropy_loss_var ** 0.5) / (self.entropy_loss_ma + eps)
-        direction_cov = (self.direction_loss_var ** 0.5) / (self.direction_loss_ma + eps)
+        # Use absolute values to handle negative loss means (like entropy)
+        policy_std = (self.policy_loss_var ** 0.5)
+        value_std = (self.value_loss_var ** 0.5)
+        entropy_std = (self.entropy_loss_var ** 0.5)
+        direction_std = (self.direction_loss_var ** 0.5)
+        
+        policy_cov = policy_std / (abs(self.policy_loss_ma) + eps)
+        value_cov = value_std / (abs(self.value_loss_ma) + eps)
+        entropy_cov = entropy_std / (abs(self.entropy_loss_ma) + eps)
+        direction_cov = direction_std / (abs(self.direction_loss_ma) + eps)
+        
+        # Ensure all coefficients are positive
+        policy_cov = max(0.0, policy_cov)
+        value_cov = max(0.0, value_cov)
+        entropy_cov = max(0.0, entropy_cov)
+        direction_cov = max(0.0, direction_cov)
         
         # Adaptive weights based on coefficient of variation
         # Higher CoV means higher uncertainty, should get more weight
-        total_cov = policy_cov + value_cov + entropy_cov + direction_cov + eps
+        # Apply smoothing to prevent extreme weight distributions
+        policy_cov_smooth = policy_cov ** 0.5  # Take square root to reduce extreme values
+        value_cov_smooth = value_cov ** 0.5
+        entropy_cov_smooth = entropy_cov ** 0.5
+        direction_cov_smooth = direction_cov ** 0.5
         
-        adaptive_policy_weight = policy_cov / total_cov
-        adaptive_value_weight = value_cov / total_cov * self.vf_coef
-        adaptive_entropy_weight = entropy_cov / total_cov * self.ent_coef
-        adaptive_direction_weight = direction_cov / total_cov * self.direction_weight
+        total_cov = policy_cov_smooth + value_cov_smooth + entropy_cov_smooth + direction_cov_smooth + eps
+        
+        # Base weights from original coefficients with adaptive scaling
+        base_policy_weight = 1.0
+        base_value_weight = self.vf_coef
+        base_entropy_weight = self.ent_coef
+        base_direction_weight = self.direction_weight
+        
+        # Adaptive weights combining base weights with variation-based scaling
+        adaptive_policy_weight = (policy_cov_smooth / total_cov) * base_policy_weight
+        adaptive_value_weight = (value_cov_smooth / total_cov) * base_value_weight
+        adaptive_entropy_weight = (entropy_cov_smooth / total_cov) * base_entropy_weight
+        adaptive_direction_weight = (direction_cov_smooth / total_cov) * base_direction_weight
+        
+        # Ensure minimum weights to prevent complete suppression
+        min_weight = 0.01
+        adaptive_policy_weight = max(min_weight * base_policy_weight, adaptive_policy_weight)
+        adaptive_value_weight = max(min_weight * base_value_weight, adaptive_value_weight)
+        adaptive_entropy_weight = max(min_weight * base_entropy_weight, adaptive_entropy_weight)
+        adaptive_direction_weight = max(min_weight * base_direction_weight, adaptive_direction_weight)
         
         return (policy_loss_norm, value_loss_norm, entropy_loss_norm, direction_loss_norm,
                 adaptive_policy_weight, adaptive_entropy_weight, adaptive_value_weight, adaptive_direction_weight)
@@ -663,10 +695,10 @@ class CustomPPO(PPO):
             
             # Log coefficient of variations
             eps = 1e-8
-            policy_cov = (self.policy_loss_var ** 0.5) / (self.policy_loss_ma + eps)
-            value_cov = (self.value_loss_var ** 0.5) / (self.value_loss_ma + eps)
-            entropy_cov = (self.entropy_loss_var ** 0.5) / (self.entropy_loss_ma + eps)
-            direction_cov = (self.direction_loss_var ** 0.5) / (self.direction_loss_ma + eps)
+            policy_cov = max(0.0, (self.policy_loss_var ** 0.5) / (abs(self.policy_loss_ma) + eps))
+            value_cov = max(0.0, (self.value_loss_var ** 0.5) / (abs(self.value_loss_ma) + eps))
+            entropy_cov = max(0.0, (self.entropy_loss_var ** 0.5) / (abs(self.entropy_loss_ma) + eps))
+            direction_cov = max(0.0, (self.direction_loss_var ** 0.5) / (abs(self.direction_loss_ma) + eps))
             
             self.logger.record("train/loss_norm/policy_cov", policy_cov)
             self.logger.record("train/loss_norm/value_cov", value_cov)
