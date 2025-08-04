@@ -305,12 +305,32 @@ class EWMARolloutBuffer(DictRolloutBuffer):
 
 class CustomPPO(PPO):
 
-    def __init__(self, *args, aux_weight: float = 0.5, direction_weight: float = 0.3, **kwargs):
+    def __init__(self, *args, aux_weight: float = 0.5, direction_weight: float = 0.3, 
+                 loss_normalization: bool = True, norm_decay: float = 0.99, **kwargs):
         super().__init__(*args, **kwargs)
         self.aux_weight = aux_weight
         self.direction_weight = direction_weight
         self.aux_loss_fn = torch.nn.CrossEntropyLoss()
         self.direction_loss_fn = torch.nn.CrossEntropyLoss()
+        
+        # Loss normalization parameters
+        self.loss_normalization = loss_normalization
+        self.norm_decay = norm_decay
+        
+        # Initialize loss moving averages for normalization
+        self.policy_loss_ma = None
+        self.value_loss_ma = None
+        self.entropy_loss_ma = None
+        self.direction_loss_ma = None
+        
+        # Initialize loss moving variances for coefficient of variation
+        self.policy_loss_var = None
+        self.value_loss_var = None
+        self.entropy_loss_var = None
+        self.direction_loss_var = None
+        
+        # Step counter for initialization
+        self.loss_norm_steps = 0
 
     def _setup_model(self) -> None:
         super()._setup_model()  # Initialize default components
@@ -325,6 +345,84 @@ class CustomPPO(PPO):
             n_envs=self.n_envs,
             ewma_decay=0.99  # As per your settings
         )
+
+    def _update_loss_statistics(self, policy_loss: float, value_loss: float, 
+                               entropy_loss: float, direction_loss: float) -> None:
+        """
+        Update moving averages and variances for loss normalization.
+        Uses exponential moving average (EWMA) for robust statistics.
+        """
+        self.loss_norm_steps += 1
+        
+        losses = [policy_loss, value_loss, entropy_loss, direction_loss]
+        moving_averages = [self.policy_loss_ma, self.value_loss_ma, 
+                          self.entropy_loss_ma, self.direction_loss_ma]
+        moving_variances = [self.policy_loss_var, self.value_loss_var,
+                           self.entropy_loss_var, self.direction_loss_var]
+        
+        # Initialize on first step
+        if self.loss_norm_steps == 1:
+            self.policy_loss_ma = policy_loss
+            self.value_loss_ma = value_loss
+            self.entropy_loss_ma = entropy_loss
+            self.direction_loss_ma = direction_loss
+            
+            self.policy_loss_var = 0.0
+            self.value_loss_var = 0.0
+            self.entropy_loss_var = 0.0
+            self.direction_loss_var = 0.0
+        else:
+            # Update moving averages and variances using EWMA
+            updated_mas = []
+            updated_vars = []
+            
+            for loss, ma, var in zip(losses, moving_averages, moving_variances):
+                # Update moving average
+                new_ma = self.norm_decay * ma + (1 - self.norm_decay) * loss
+                # Update moving variance (Welford's online algorithm adaptation)
+                new_var = self.norm_decay * var + (1 - self.norm_decay) * (loss - ma) ** 2
+                
+                updated_mas.append(new_ma)
+                updated_vars.append(new_var)
+            
+            self.policy_loss_ma, self.value_loss_ma, self.entropy_loss_ma, self.direction_loss_ma = updated_mas
+            self.policy_loss_var, self.value_loss_var, self.entropy_loss_var, self.direction_loss_var = updated_vars
+
+    def _normalize_losses(self, policy_loss: torch.Tensor, value_loss: torch.Tensor,
+                         entropy_loss: torch.Tensor, direction_loss: torch.Tensor) -> tuple:
+        """
+        Normalize losses using moving averages to handle scale differences.
+        Returns normalized losses and adaptive weights based on coefficient of variation.
+        """
+        if not self.loss_normalization or self.loss_norm_steps < 10:
+            # Skip normalization for first few steps to build statistics
+            return policy_loss, value_loss, entropy_loss, direction_loss, 1.0, self.ent_coef, self.vf_coef, self.direction_weight
+        
+        # Normalize by moving averages (avoid division by zero)
+        eps = 1e-8
+        
+        policy_loss_norm = policy_loss / (self.policy_loss_ma + eps)
+        value_loss_norm = value_loss / (self.value_loss_ma + eps)
+        entropy_loss_norm = entropy_loss / (self.entropy_loss_ma + eps)
+        direction_loss_norm = direction_loss / (self.direction_loss_ma + eps)
+        
+        # Calculate coefficient of variation for adaptive weighting
+        policy_cov = (self.policy_loss_var ** 0.5) / (self.policy_loss_ma + eps)
+        value_cov = (self.value_loss_var ** 0.5) / (self.value_loss_ma + eps)
+        entropy_cov = (self.entropy_loss_var ** 0.5) / (self.entropy_loss_ma + eps)
+        direction_cov = (self.direction_loss_var ** 0.5) / (self.direction_loss_ma + eps)
+        
+        # Adaptive weights based on coefficient of variation
+        # Higher CoV means higher uncertainty, should get more weight
+        total_cov = policy_cov + value_cov + entropy_cov + direction_cov + eps
+        
+        adaptive_policy_weight = policy_cov / total_cov
+        adaptive_value_weight = value_cov / total_cov * self.vf_coef
+        adaptive_entropy_weight = entropy_cov / total_cov * self.ent_coef
+        adaptive_direction_weight = direction_cov / total_cov * self.direction_weight
+        
+        return (policy_loss_norm, value_loss_norm, entropy_loss_norm, direction_loss_norm,
+                adaptive_policy_weight, adaptive_entropy_weight, adaptive_value_weight, adaptive_direction_weight)
 
     def collect_rollouts(
         self, env, callback, rollout_buffer, n_rollout_steps: int
@@ -491,11 +589,32 @@ class CustomPPO(PPO):
                     direction_losses.append(direction_loss.item())
                     direction_accuracies.append(direction_accuracy)
 
-                # Total loss combines policy loss, value loss, entropy loss, and direction loss
-                loss = (policy_loss + 
-                       self.ent_coef * entropy_loss + 
-                       self.vf_coef * value_loss + 
-                       self.direction_weight * direction_loss)
+                # Update loss statistics for normalization
+                self._update_loss_statistics(
+                    policy_loss.item(), 
+                    value_loss.item(), 
+                    entropy_loss.item(), 
+                    direction_loss.item()
+                )
+
+                # Normalize losses and get adaptive weights
+                (policy_loss_norm, value_loss_norm, entropy_loss_norm, direction_loss_norm,
+                 adaptive_policy_weight, adaptive_entropy_weight, adaptive_value_weight, adaptive_direction_weight) = self._normalize_losses(
+                    policy_loss, value_loss, entropy_loss, direction_loss
+                )
+
+                # Total loss combines normalized losses with adaptive weights
+                if self.loss_normalization and self.loss_norm_steps >= 10:
+                    loss = (adaptive_policy_weight * policy_loss_norm + 
+                           adaptive_entropy_weight * entropy_loss_norm + 
+                           adaptive_value_weight * value_loss_norm + 
+                           adaptive_direction_weight * direction_loss_norm)
+                else:
+                    # Fallback to original weighting for initial steps
+                    loss = (policy_loss + 
+                           self.ent_coef * entropy_loss + 
+                           self.vf_coef * value_loss + 
+                           self.direction_weight * direction_loss)
 
                 # Calculate approximate form of reverse KL Divergence for early stopping
                 # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
@@ -534,6 +653,32 @@ class CustomPPO(PPO):
         if direction_losses:
             self.logger.record("train/direction_loss", np.mean(direction_losses))
             self.logger.record("train/direction_accuracy", np.mean(direction_accuracies))
+        
+        # Log loss normalization statistics
+        if self.loss_normalization and self.loss_norm_steps >= 10:
+            self.logger.record("train/loss_norm/policy_loss_ma", self.policy_loss_ma)
+            self.logger.record("train/loss_norm/value_loss_ma", self.value_loss_ma)
+            self.logger.record("train/loss_norm/entropy_loss_ma", self.entropy_loss_ma)
+            self.logger.record("train/loss_norm/direction_loss_ma", self.direction_loss_ma)
+            
+            # Log coefficient of variations
+            eps = 1e-8
+            policy_cov = (self.policy_loss_var ** 0.5) / (self.policy_loss_ma + eps)
+            value_cov = (self.value_loss_var ** 0.5) / (self.value_loss_ma + eps)
+            entropy_cov = (self.entropy_loss_var ** 0.5) / (self.entropy_loss_ma + eps)
+            direction_cov = (self.direction_loss_var ** 0.5) / (self.direction_loss_ma + eps)
+            
+            self.logger.record("train/loss_norm/policy_cov", policy_cov)
+            self.logger.record("train/loss_norm/value_cov", value_cov)
+            self.logger.record("train/loss_norm/entropy_cov", entropy_cov)
+            self.logger.record("train/loss_norm/direction_cov", direction_cov)
+            
+            # Log adaptive weights
+            total_cov = policy_cov + value_cov + entropy_cov + direction_cov + eps
+            self.logger.record("train/adaptive_weights/policy", policy_cov / total_cov)
+            self.logger.record("train/adaptive_weights/value", value_cov / total_cov * self.vf_coef)
+            self.logger.record("train/adaptive_weights/entropy", entropy_cov / total_cov * self.ent_coef)
+            self.logger.record("train/adaptive_weights/direction", direction_cov / total_cov * self.direction_weight)
         
         self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
