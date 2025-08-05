@@ -9,6 +9,8 @@ from llm_attention_map import parse_seen_objects, build_attn_map, convert_to_rgb
 import matplotlib.pyplot as plt
 from gym import spaces
 
+import heapq 
+
 # from skimage.draw import line as bresenham_line
 
 import cv2
@@ -852,6 +854,33 @@ class SelectiveBlurWrapper(gym.Wrapper):
         player_id = 13
 
         clear_semantic_mask = ((view_semantic == self.target_obj_id) | (view_semantic == player_id)).astype(np.uint8)
+        
+        target_indices = list(zip(*np.where(view_semantic == self.target_obj_id)))
+        
+        if target_indices:
+            # 玩家在视野中心的位置
+            player_pos_in_view = (half_w, half_h) # (x, y) 格式
+
+            # 找到最近的目标物体
+            closest_target = min(target_indices, key=lambda pos: self._heuristic(pos, player_pos_in_view))
+            
+            # 转置语义地图以匹配 (y, x) 坐标系
+            view_semantic_transposed = view_semantic.T
+            
+            # A* 寻路的起点和终点需要是 (y, x) 格式
+            start_node = (player_pos_in_view[1], player_pos_in_view[0])
+            goal_node = (closest_target[1], closest_target[0])
+            
+            # 调用 A* 算法寻找路径
+            path = self._find_shortest_path(view_semantic_transposed, start_node, goal_node)
+            
+            # 如果找到路径，将路径上的点也加入清晰蒙版
+            if path:
+                for y, x in path:
+                    # 注意：在原始的 (宽度, 高度) 蒙版上更新
+                    if 0 <= x < clear_semantic_mask.shape[0] and 0 <= y < clear_semantic_mask.shape[1]:
+                       clear_semantic_mask[x, y] = True
+
 
         clear_semantic_mask = clear_semantic_mask.T.astype(np.uint8)
         # 将7x9语义蒙版缩放到世界视野的像素尺寸 (64x50) ---
@@ -989,75 +1018,61 @@ class SelectiveBlurWrapper(gym.Wrapper):
         
         print("===========================")
 
-    def _find_shortest_path(self, view_semantic, target_pos, player_pos_in_view):
+    def _find_shortest_path(self, grid, start, goal):
         """
         使用A*算法找到从主人公到目标物体的最短路径
         
         Args:
-            view_semantic: 视野语义地图
-            target_pos: 目标物体位置 (y, x)
-            player_pos_in_view: 主人公在视野中的位置 (y, x)
-        
-        Returns:
-            path_mask: 路径遮罩，1表示路径，0表示其他
+                grid: 视野的语义地图 (view_semantic.T)，已经是 (高度, 宽度) 格式。
+                start: 起点坐标 (y, x)。
+                goal: 终点坐标 (y, x)。
+                
+            Returns:
+                包含路径坐标的列表，如果找不到路径则返回空列表。
         """
-        import heapq
-        
-        # 定义可移动的方向（上下左右）
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        
-        # 定义障碍物ID（墙壁等不可通过的对象）
-        obstacle_ids = [1, 2, 4, 5, 6, 7, 10, 11, 12]  # 根据游戏对象ID调整
-        
+        # 定义在语义地图上哪些物体是不可通过的障碍物
+        # ID: 1=water, 6=tree, 7=lava (根据Crafter游戏定义调整)
+        obstacles_ids = {1, 6, 7}
+
         # 初始化
-        start = player_pos_in_view
-        goal = target_pos
-        open_set = [(0, start)]  # (f_score, position)
-        came_from = {}
+        open_set = [(0, start)]  # 优先队列，存储 (f_score, position)
+        came_from = {}          # 记录路径，用于回溯
+
         g_score = {start: 0}
         f_score = {start: self._heuristic(start, goal)}
-        
+
         while open_set:
+
             current_f, current = heapq.heappop(open_set)
-            
+
             if current == goal:
-                # 重建路径
                 path = []
                 while current in came_from:
                     path.append(current)
                     current = came_from[current]
-                path.append(start)
                 path.reverse()
-                
-                # 创建路径遮罩
-                path_mask = np.zeros_like(view_semantic, dtype=np.uint8)
-                for pos in path:
-                    path_mask[pos] = 1
-                return path_mask
+                return path
             
-            for dy, dx in directions:
+            for dy, dx in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 neighbor = (current[0] + dy, current[1] + dx)
-                
-                # 检查边界
-                if (0 <= neighbor[0] < view_semantic.shape[0] and 
-                    0 <= neighbor[1] < view_semantic.shape[1]):
-                    
-                    # 检查是否为障碍物
-                    if view_semantic[neighbor] in obstacle_ids:
-                        continue
-                    
-                    tentative_g = g_score[current] + 1
-                    
-                    if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                        came_from[neighbor] = current
-                        g_score[neighbor] = tentative_g
-                        f_score[neighbor] = tentative_g + self._heuristic(neighbor, goal)
-                        
-                        if neighbor not in [pos for _, pos in open_set]:
-                            heapq.heappush(open_set, (f_score[neighbor], neighbor))
-        
-        # 如果找不到路径，返回空遮罩
-        return np.zeros_like(view_semantic, dtype=np.uint8)
+
+                if not (0 <= neighbor[0] < grid.shape[0] and 0 <= neighbor[1] < grid.shape[1]):
+                    continue
+
+                if grid[neighbor[0], neighbor[1]] in obstacles_ids:
+                    continue
+
+                tentative_g_score = g_score.get(current, float('inf')) + 1
+
+                if tentative_g_score < g_score.get(neighbor, float('inf')):
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g_score
+                    f_score[neighbor] = tentative_g_score + self._heuristic(neighbor, goal)
+                    heapq.heappush(open_set, (f_score[neighbor], neighbor))
+
+        return []
+
+
 
     def _heuristic(self, pos1, pos2):
         """
