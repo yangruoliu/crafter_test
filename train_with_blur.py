@@ -15,6 +15,137 @@ from stable_baselines3.common.callbacks import BaseCallback
 import time
 from datetime import datetime
 import argparse
+import matplotlib.pyplot as plt
+import json
+
+class RewardPlotCallback(BaseCallback):
+    """训练过程中的reward绘制回调 - 修复版本"""
+    
+    def __init__(self, save_interval=1000, plot_filename="training_rewards.png", verbose=0):
+        super().__init__(verbose)
+        self.save_interval = save_interval
+        self.plot_filename = plot_filename
+        self.episode_rewards = []
+        self.episode_lengths = []
+        
+    def _on_step(self) -> bool:
+        """每步回调 - 使用更可靠的方法获取训练信息"""
+        # Überprüfen Sie jeden Umgebung in der VecEnv
+        for i, done in enumerate(self.locals.get("dones", [])):
+            if done:
+                # Informationen aus dem info-Wörterbuch abrufen, wenn eine Episode beendet ist
+                info = self.locals["infos"][i]
+                if 'episode' in info:
+                    episode_info = info['episode']
+                    self.episode_rewards.append(episode_info['r'])
+                    self.episode_lengths.append(episode_info['l'])
+                    
+                    # Diagramm in regelmäßigen Abständen speichern
+                    if len(self.episode_rewards) % self.save_interval == 0:
+                        self._plot_rewards()
+        return True
+
+    def _plot_rewards(self):
+        """绘制reward折线图 - 优化版本"""
+        if len(self.episode_rewards) < 5:
+            return
+
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            from datetime import datetime
+            import json
+
+            plt.figure(figsize=(12, 6))
+
+            # 主图 - Reward趋势
+            plt.subplot(1, 2, 1)
+            episodes = range(1, len(self.episode_rewards) + 1)
+
+            # 原始reward曲线
+            plt.plot(episodes, self.episode_rewards, 'b-', linewidth=1, alpha=0.3, label='Raw')
+
+            # 移动平均线
+            if len(self.episode_rewards) >= 10:
+                window_size = min(20, len(self.episode_rewards) // 3)
+                moving_avg = np.convolve(
+                    self.episode_rewards,
+                    np.ones(window_size) / window_size,
+                    mode='valid'
+                )
+
+                # --- 这是修改的关键 ---
+                # 移动平均的X轴应该从 window_size 开始，并且长度与 moving_avg 匹配
+                x_axis_moving_avg = range(window_size, len(self.episode_rewards) - len(moving_avg) + window_size + len(
+                    moving_avg))  # 更简单的方式见下
+                # 一个更简单、更可靠的方式是：
+                # 移动平均值对应的是从第 `window_size - 1` 个 episode 到最后一个 episode 的窗口的平均值
+                # 所以x轴的起点应该是第 `window_size` 个 episode
+                x_axis_for_moving_avg = np.arange(window_size, len(self.episode_rewards) + 1)
+
+                plt.plot(
+                    x_axis_for_moving_avg,  # 使用修正后的X轴
+                    moving_avg,
+                    'r-',
+                    linewidth=2,
+                    label=f'{window_size}-episode Avg'
+                )
+
+            plt.title('Training Rewards')
+            plt.xlabel('Episode')
+            plt.ylabel('Reward')
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+
+            # 副图 - Reward分布
+            plt.subplot(1, 2, 2)
+            plt.hist(
+                self.episode_rewards,
+                bins=min(15, len(set(self.episode_rewards)) if len(set(self.episode_rewards)) > 1 else 1),
+                alpha=0.7,
+                color='green',
+                edgecolor='black'
+            )
+            plt.title('Reward Distribution')
+            plt.xlabel('Reward')
+            plt.ylabel('Frequency')
+            plt.grid(True, alpha=0.3)
+
+            if self.episode_rewards:
+                plt.text(
+                    0.05, 0.95,
+                    f"Episodes: {len(self.episode_rewards)}\n"
+                    f"Avg: {np.mean(self.episode_rewards):.2f}\n"
+                    f"Max: {max(self.episode_rewards):.2f}\n"
+                    f"Min: {min(self.episode_rewards):.2f}",
+                    transform=plt.gca().transAxes,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+                )
+
+            plt.tight_layout()
+            plt.savefig(self.plot_filename, dpi=200, bbox_inches='tight')
+            plt.close()
+
+            data = {
+                'episode_rewards': [float(r) for r in self.episode_rewards],
+                'episode_lengths': [int(l) for l in self.episode_lengths],
+                'total_steps': self.num_timesteps,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            with open(self.plot_filename.replace('.png', '.json'), 'w') as f:
+                json.dump(data, f, indent=2)
+
+        except Exception as e:
+            print(f"Fehler beim Plotten der Belohnungen: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_training_end(self) -> None:
+        """训练结束时绘制最终图表"""
+        self._plot_rewards()
+        print(f"Finaler Belohnungs-Plot gespeichert als: {self.plot_filename}")
+
 
 class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
     """带render方法的SelectiveBlurWrapper - 用于训练时的数据保存"""
@@ -31,44 +162,44 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         self._last_blurred_obs = None
         self._last_mask = None
     
-    def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
-        """
-        重写目标物体遮罩创建方法，修复坐标系问题
-        """
-        px, py = player_pos
-        view_w, view_h = view_size
+    # def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
+    #     """
+    #     重写目标物体遮罩创建方法，修复坐标系问题
+    #     """
+    #     px, py = player_pos
+    #     view_w, view_h = view_size
         
-        # 计算视野范围
-        half_w, half_h = view_w // 2, view_h // 2
-        x1 = max(0, px - half_w)
-        y1 = max(0, py - half_h)
-        x2 = min(semantic_map.shape[0], px + half_w + 1)
-        y2 = min(semantic_map.shape[1], py + half_h + 1)
+    #     # 计算视野范围
+    #     half_w, half_h = view_w // 2, view_h // 2
+    #     x1 = max(0, px - half_w)
+    #     y1 = max(0, py - half_h)
+    #     x2 = min(semantic_map.shape[0], px + half_w + 1)
+    #     y2 = min(semantic_map.shape[1], py + half_h + 1)
         
-        # 提取视野区域的语义地图
-        view_semantic = semantic_map[x1:x2, y1:y2]
+    #     # 提取视野区域的语义地图
+    #     view_semantic = semantic_map[x1:x2, y1:y2]
         
-        # 创建目标物体遮罩
-        target_positions = (view_semantic == self.target_obj_id)
-        semantic_mask = target_positions.astype(np.uint8)
+    #     # 创建目标物体遮罩
+    #     target_positions = (view_semantic == self.target_obj_id)
+    #     semantic_mask = target_positions.astype(np.uint8)
         
-        # 将语义遮罩缩放到图像尺寸
-        img_h, img_w = image_shape[:2]
-        if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
-            # 直接转置：语义地图通常是 [y, x] 格式，需要转换为 [x, y] 格式以匹配图像
-            semantic_mask = semantic_mask.T  # 直接转置
+    #     # 将语义遮罩缩放到图像尺寸
+    #     img_h, img_w = image_shape[:2]
+    #     if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
+    #         # 直接转置：语义地图通常是 [y, x] 格式，需要转换为 [x, y] 格式以匹配图像
+    #         semantic_mask = semantic_mask.T  # 直接转置
             
-            target_mask = cv2.resize(
-                semantic_mask.astype(np.float32),
-                (img_w, img_h),  # OpenCV格式: (width, height)
-                interpolation=cv2.INTER_NEAREST  # 使用NEAREST避免插值导致的问题
-            )
-            # 应用阈值以保持二值特性
-            target_mask = (target_mask > 0.5).astype(np.uint8)
-        else:
-            target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
+    #         target_mask = cv2.resize(
+    #             semantic_mask.astype(np.float32),
+    #             (img_w, img_h),  # OpenCV格式: (width, height)
+    #             interpolation=cv2.INTER_NEAREST  # 使用NEAREST避免插值导致的问题
+    #         )
+    #         # 应用阈值以保持二值特性
+    #         target_mask = (target_mask > 0.5).astype(np.uint8)
+    #     else:
+    #         target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
         
-        return target_mask
+    #     return target_mask
     
     def render(self, size=None):
         """返回blur处理后的图像"""
@@ -100,7 +231,7 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         if semantic_map is not None:
             try:
                 # 创建目标物体遮罩
-                target_mask = self._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
+                target_mask = self._get_proportional_clear_mask(semantic_map, player_pos, view_size, original_obs.shape)
                 self._last_mask = target_mask.copy()
                 
                 # 应用选择性模糊
@@ -234,27 +365,50 @@ class TrainingVideoCallback(BaseCallback):
         """训练开始时初始化视频录制"""
         if self.save_video:
             try:
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                # 对比视频尺寸：宽度 × 3
-                video_width = self.video_size[0] * 3
-                video_height = self.video_size[1]
+                # 尝试不同的编码器
+                codecs = ['mp4v', 'avc1', 'H264', 'XVID']
+                self.video_writer = None
                 
-                self.video_writer = cv2.VideoWriter(
-                    self.video_path,
-                    fourcc,
-                    self.video_fps,
-                    (video_width, video_height)
-                )
+                for codec in codecs:
+                    try:
+                        fourcc = cv2.VideoWriter_fourcc(*codec)
+                        video_width = self.video_size[0] * 3
+                        video_height = self.video_size[1]
+                        
+                        # 使用.avi格式作为备选
+                        video_ext = '.mp4' if codec in ['mp4v', 'avc1', 'H264'] else '.avi'
+                        video_path = self.video_path.replace('.mp4', video_ext)
+                        
+                        self.video_writer = cv2.VideoWriter(
+                            video_path,
+                            fourcc,
+                            self.video_fps,
+                            (video_width, video_height)
+                        )
+                        
+                        if self.video_writer.isOpened():
+                            print(f"Video recording initialized with codec {codec}: {video_path}")
+                            self.video_path = video_path  # 更新路径
+                            break
+                        else:
+                            self.video_writer.release()
+                            self.video_writer = None
+                            
+                    except Exception as e:
+                        print(f"Failed to initialize with codec {codec}: {e}")
+                        if self.video_writer:
+                            self.video_writer.release()
+                            self.video_writer = None
                 
-                if self.video_writer.isOpened():
-                    print(f"Video recording initialized: {self.video_path}")
-                else:
-                    print("Failed to initialize video writer")
-                    self.video_writer = None
+                if self.video_writer is None:
+                    print("Warning: Failed to initialize video writer with any codec")
+                    print("Video recording will be disabled")
+                    self.save_video = False
                     
             except Exception as e:
                 print(f"Error initializing video recording: {e}")
                 self.video_writer = None
+                self.save_video = False
 
     def _on_step(self) -> bool:
         """每步回调"""
@@ -365,6 +519,8 @@ def train_with_selective_blur():
     parser.add_argument('--video_size', type=int, nargs=2, default=[600, 600], help='Video size')
     parser.add_argument('--video_fps', type=int, default=10, help='Video frame rate')
     parser.add_argument('--save_interval', type=int, default=100, help='Save matrices every N steps')
+    parser.add_argument('--ent_coef', type=float, default=0.01, help='Entropy coefficient')
+    parser.add_argument('--learning_rate', type=float, default=2e-4, help='Learning rate')
     
     args = parser.parse_args()
     
@@ -372,8 +528,8 @@ def train_with_selective_blur():
     
     config = {
         "total_timesteps": args.total_timesteps,
-        "save_dir": os.path.join("RL_models_zdl", f"stone_with_blur_{timestamp}"),
-        "model_name": f"stone_with_blur_{timestamp}",
+        "save_dir": os.path.join("RL_models_zdl", f"stone_with_blur_v1"),
+        "model_name": f"stone_with_blur_v1",
         "init_items": ["wood_pickaxe"],
         "init_num": [1],
         "target_obj_id": args.target_obj_id,
@@ -425,18 +581,18 @@ def train_with_selective_blur():
         CustomACPolicy,
         env,
         policy_kwargs=policy_kwargs,
-        learning_rate=3e-4,
-        n_steps=4096,
-        batch_size=512,
-        n_epochs=3,
-        gamma=0.95,
-        gae_lambda=0.65,
-        clip_range=0.2,
-        ent_coef=0.01,
+        learning_rate=2e-4,
+        n_steps=2048,
+        batch_size=256,
+        n_epochs=4,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.15,
+        ent_coef=0.02,
         vf_coef=0.5,
         max_grad_norm=0.5,
         verbose=1,
-        normalize_advantage=False
+        normalize_advantage=True
     )
     print("PPO model created")
 
@@ -451,37 +607,32 @@ def train_with_selective_blur():
         verbose=1
     )
 
+    reward_callback = RewardPlotCallback(
+        save_interval=1000,
+        plot_filename=f"training_rewards_{timestamp}.png",
+        verbose=1
+    )
+
     # Start training
     print("Starting training with video recording...")
     
     model.learn(
         total_timesteps=config["total_timesteps"], 
         progress_bar=True,
-        callback=callback
+        callback=[callback, reward_callback]
     )
 
     # Save model
     model.save(config["save_dir"])
-    print(f"Model saved to: {config['save_dir']}")
-
-    # Save configuration
+    
     config_path = config["save_dir"] + "_config.txt"
     with open(config_path, 'w') as f:
         f.write("=== Selective blur training configuration ===\n")
         for key, value in config.items():
             f.write(f"{key}: {value}\n")
-        f.write("\n=== Command line arguments ===\n")
-        for key, value in vars(args).items():
-            f.write(f"{key}: {value}\n")
-    print(f"Configuration saved to: {config_path}")
-
-    # Save latest model record
-    latest_model_file = os.path.join("RL_models", "latest_blur_model.txt")
-    os.makedirs("RL_models", exist_ok=True)
-    with open(latest_model_file, 'w') as f:
-        f.write(config["model_name"])
-    print(f"Latest model record saved to: {latest_model_file}")
-
+        f.write(f"\nent_coef: {args.ent_coef}\n")
+        f.write(f"learning_rate: {args.learning_rate}\n")
+    
     env.close()
     print("=== Training completed ===")
 

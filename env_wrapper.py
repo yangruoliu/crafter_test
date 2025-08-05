@@ -9,7 +9,11 @@ from llm_attention_map import parse_seen_objects, build_attn_map, convert_to_rgb
 import matplotlib.pyplot as plt
 from gym import spaces
 
+# from skimage.draw import line as bresenham_line
+
 import cv2
+
+import os
 
 def face_at(obs):
 
@@ -740,18 +744,10 @@ def call_wrapper(env, wrapper_list, init_wrapper_params):
 class SelectiveBlurWrapper(gym.Wrapper):
     """
     方案一：选择性模糊包装器
-    
-    核心思路：利用游戏语义地图信息，对非目标物体区域进行模糊处理，
-    使智能体更容易关注到重要的目标物体，从而加速训练。
-    
-    技术实现：
-    1. 从游戏info中获取semantic_map和player_pos
-    2. 识别目标物体在视野中的位置
-    3. 对非目标区域应用高斯模糊
-    4. 保持目标物体区域清晰
+
     """
     
-    def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=5):
+    def __init__(self, env, target_obj_id, target_obj_name="stone", blur_strength=3):
         """
         初始化选择性模糊包装器
         
@@ -778,9 +774,108 @@ class SelectiveBlurWrapper(gym.Wrapper):
         # print(f"  Target object: {target_obj_name} (ID: {target_obj_id})")
         # print(f"  Blur strength: {blur_strength}")
 
+        # 定义世界视野在垂直方向上所占的比例 (7行世界 / 9行总视野)
+        self.WORLD_VIEW_HEIGHT_RATIO = 7.0 / 9.0
+
+    # def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
+    #     """
+    #     创建目标物体遮罩
+        
+    #     Args:
+    #         semantic_map: 游戏语义地图 (64x64)
+    #         player_pos: 玩家位置 [x, y]
+    #         view_size: 视野大小 [width, height]
+    #         image_shape: 图像形状 [height, width, channels]
+        
+    #     Returns:
+    #         target_mask: 目标物体遮罩，1表示目标物体区域，0表示其他区域
+    #     """
+    #     px, py = player_pos
+    #     view_w, view_h = view_size
+        
+    #     # 计算视野范围
+    #     half_w, half_h = view_w // 2, view_h // 2
+    #     x1 = max(0, px - half_w)
+    #     y1 = max(0, py - half_h)
+    #     x2 = min(semantic_map.shape[0], px + half_w + 1)
+    #     y2 = min(semantic_map.shape[1], py + half_h + 1)
+        
+    #     # 提取视野区域的语义地图
+    #     view_semantic = semantic_map[x1:x2, y1:y2]
+    #     print(f"----   view_semantic: {view_semantic}")
+        
+    #     # 创建目标物体遮罩
+    #     target_positions = (view_semantic == self.target_obj_id) | (view_semantic == 13)
+    #     semantic_mask = target_positions.astype(np.uint8)
+        
+    #     # 将语义遮罩缩放到图像尺寸
+    #     img_h, img_w = image_shape[:2]
+    #     if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
+    #         semantic_mask = semantic_mask.T
+            
+    #         target_mask = cv2.resize(
+    #             semantic_mask.astype(np.float32),
+    #             (img_w, img_h),
+    #             interpolation=cv2.INTER_LINEAR
+    #         )
+    #         # 应用阈值以保持二值特性
+    #         target_mask = (target_mask > 0.3).astype(np.uint8)
+    #     else:
+    #         target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
+        
+    #     return target_mask
+
+    def _get_proportional_clear_mask(self, semantic_map, player_pos, view_size, image_shape):
+        """
+        这个函数将屏幕分为“世界视野”和“UI物品栏”两部分，并为每个部分生成正确的蒙版，
+        最后将它们组合成一个完整的64x64蒙版。
+
+        错误的原因，截取的位置不对。
+        """
+        img_h, img_w = image_shape[:2] # 64, 64
+
+        world_view_px_h = int(round(img_h * self.WORLD_VIEW_HEIGHT_RATIO))
+
+        inventory_px_h = img_h - world_view_px_h
+
+        px, py = player_pos
+        view_w, _ = view_size # 9
+        semantic_view_h = 7
+        half_w = view_w // 2
+        half_h = semantic_view_h // 2
+
+        x1, x2 = max(0, px - half_w), min(semantic_map.shape[1], px + half_w + 1)
+        y1, y2 = max(0, py - half_h), min(semantic_map.shape[0], py + half_h + 1)
+
+        view_semantic = semantic_map[x1:x2, y1:y2]
+
+        player_id = 13
+
+        clear_semantic_mask = ((view_semantic == self.target_obj_id) | (view_semantic == player_id)).astype(np.uint8)
+
+        clear_semantic_mask = clear_semantic_mask.T.astype(np.uint8)
+        # 将7x9语义蒙版缩放到世界视野的像素尺寸 (64x50) ---
+        # 注意：cv2.resize的尺寸参数是(宽度, 高度)
+        world_view_mask = cv2.resize(
+            clear_semantic_mask,
+            (img_w, world_view_px_h), # 缩放到 (64, 50)
+            interpolation=cv2.INTER_NEAREST # 使用最近邻插值，保持清晰的边界
+        )
+
+        final_mask = np.zeros(image_shape[:2], dtype=np.uint8)
+        
+        # 将64x50的世界蒙版放到最终蒙版的上半部分
+        final_mask[0:world_view_px_h, :] = world_view_mask
+        
+        # 将最终蒙版的下半部分（UI区域）全部设为1（清晰）
+        final_mask[world_view_px_h:img_h, :] = 1 # 1代表清晰
+        
+        return final_mask
+
+
     def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
         """
-        创建目标物体遮罩
+        创建目标物体遮罩，包含目标物体、主人公和最短路径
         
         Args:
             semantic_map: 游戏语义地图 (64x64)
@@ -789,41 +884,186 @@ class SelectiveBlurWrapper(gym.Wrapper):
             image_shape: 图像形状 [height, width, channels]
         
         Returns:
-            target_mask: 目标物体遮罩，1表示目标物体区域，0表示其他区域
+            target_mask: 目标物体遮罩，1表示清晰区域，0表示模糊区域
         """
         px, py = player_pos
         view_w, view_h = view_size
         
         # 计算视野范围
-        half_w, half_h = view_w // 2, view_h // 2
+        half_w, half_h = view_w // 2, view_h // 2 - 1  # 这里是因为视野范围是以角色为中心的 7 * 9， 最下面两行是角色所有物。
         x1 = max(0, px - half_w)
         y1 = max(0, py - half_h)
         x2 = min(semantic_map.shape[0], px + half_w + 1)
         y2 = min(semantic_map.shape[1], py + half_h + 1)
+        # print(f"----   Player at ({px}, {py}) in 7×9 view")
+        # print(f"----  854  View range: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+        # ----   Player at (32, 32) in 7×9 view
+        # ----   View range: x1=28, y1=28, x2=37, y2=37
+    
+        # print(f"----   x1: {x1}, y1: {y1}, x2: {x2}, y2: {y2}")
+        # print(f"semantic_map.shape: {semantic_map.shape}")
+        # print(f"semantic_map: {semantic_map}")
         
         # 提取视野区域的语义地图
         view_semantic = semantic_map[x1:x2, y1:y2]
+        # print(f"----  864 view_semantic: {view_semantic}")  # 其实到这里的view_semantic 都是没问题的，
+
         
-        # 创建目标物体遮罩
-        target_positions = (view_semantic == self.target_obj_id)
+        
+        # 创建基础遮罩：目标物体和主人公
+        target_positions = (view_semantic == self.target_obj_id) | (view_semantic == 13)
+        # print(f"----   target_positions: {target_positions}")
         semantic_mask = target_positions.astype(np.uint8)
+        print(f"----   semantic_mask: {semantic_mask}")
+        
+        # 如果视野内有目标物体，计算最短路径
+        # if np.any(view_semantic == self.target_obj_id):
+        #     # 找到目标物体的位置
+        #     target_y, target_x = np.where(view_semantic == self.target_obj_id)
+        #     if len(target_y) > 0 and len(target_x) > 0:
+        #         # 取第一个目标物体位置
+        #         target_pos = (target_y[0], target_x[0])
+                
+        #         # 计算从主人公到目标物体的最短路径
+        #         path_mask = self._find_shortest_path(view_semantic, target_pos, (half_h, half_w))
+                
+        #         # 合并路径到遮罩中
+        #         semantic_mask = semantic_mask | path_mask
+        #         print(f"----   semantic_mask2: {semantic_mask}")
         
         # 将语义遮罩缩放到图像尺寸
         img_h, img_w = image_shape[:2]
+        # print(f"----   img_h: {img_h}, img_w: {img_w}")  (64, 64)
         if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
             semantic_mask = semantic_mask.T
+            print(f"----   semantic_mask.T: {semantic_mask}")
             
             target_mask = cv2.resize(
                 semantic_mask.astype(np.float32),
                 (img_w, img_h),
-                interpolation=cv2.INTER_LINEAR
+                interpolation=cv2.INTER_NEAREST
             )
             # 应用阈值以保持二值特性
-            target_mask = (target_mask > 0.3).astype(np.uint8)
+            target_mask = (target_mask > 0.5).astype(np.uint8)
+
+            print(f"---- 904 --  target_mask: {target_mask}")
+            # os.makedirs("target_mask", exist_ok=True)
+            # path = os.path.join("target_mask", f"target_mask_{self.target_obj_name}.txt")
+
+            # with open(path, 'w') as f:
+            #     for row in target_mask:
+            #         row_str = " ".join([str(int(val)) for val in row])
+            #         f.write(row_str + "\n")
+
+            # print(f"Target mask saved to: {path}")
         else:
             target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
         
         return target_mask
+    
+    def _debug_mask_alignment(self, semantic_map, player_pos, view_size, target_mask):
+        """
+        调试遮罩对齐问题
+        """
+        print("=== Debug Mask Alignment ===")
+        print(f"Player position: {player_pos}")
+        print(f"View size: {view_size}")
+        print(f"Semantic map shape: {semantic_map.shape}")
+        print(f"Target mask shape: {target_mask.shape}")
+        
+        # 检查玩家位置周围的遮罩值
+        px, py = player_pos
+        if 0 <= px < target_mask.shape[1] and 0 <= py < target_mask.shape[0]:
+            center_value = target_mask[py, px]
+            print(f"Mask value at player position: {center_value}")
+        
+        # 检查目标物体的位置
+        target_y, target_x = np.where(semantic_map == self.target_obj_id)
+        if len(target_y) > 0:
+            print(f"Target object found at: ({target_x[0]}, {target_y[0]})")
+            # 检查对应位置的遮罩值
+            if (0 <= target_x[0] < target_mask.shape[1] and 
+                0 <= target_y[0] < target_mask.shape[0]):
+                target_mask_value = target_mask[target_y[0], target_x[0]]
+                print(f"Mask value at target position: {target_mask_value}")
+        
+        print("===========================")
+
+    def _find_shortest_path(self, view_semantic, target_pos, player_pos_in_view):
+        """
+        使用A*算法找到从主人公到目标物体的最短路径
+        
+        Args:
+            view_semantic: 视野语义地图
+            target_pos: 目标物体位置 (y, x)
+            player_pos_in_view: 主人公在视野中的位置 (y, x)
+        
+        Returns:
+            path_mask: 路径遮罩，1表示路径，0表示其他
+        """
+        import heapq
+        
+        # 定义可移动的方向（上下左右）
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        
+        # 定义障碍物ID（墙壁等不可通过的对象）
+        obstacle_ids = [1, 2, 4, 5, 6, 7, 10, 11, 12]  # 根据游戏对象ID调整
+        
+        # 初始化
+        start = player_pos_in_view
+        goal = target_pos
+        open_set = [(0, start)]  # (f_score, position)
+        came_from = {}
+        g_score = {start: 0}
+        f_score = {start: self._heuristic(start, goal)}
+        
+        while open_set:
+            current_f, current = heapq.heappop(open_set)
+            
+            if current == goal:
+                # 重建路径
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start)
+                path.reverse()
+                
+                # 创建路径遮罩
+                path_mask = np.zeros_like(view_semantic, dtype=np.uint8)
+                for pos in path:
+                    path_mask[pos] = 1
+                return path_mask
+            
+            for dy, dx in directions:
+                neighbor = (current[0] + dy, current[1] + dx)
+                
+                # 检查边界
+                if (0 <= neighbor[0] < view_semantic.shape[0] and 
+                    0 <= neighbor[1] < view_semantic.shape[1]):
+                    
+                    # 检查是否为障碍物
+                    if view_semantic[neighbor] in obstacle_ids:
+                        continue
+                    
+                    tentative_g = g_score[current] + 1
+                    
+                    if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                        came_from[neighbor] = current
+                        g_score[neighbor] = tentative_g
+                        f_score[neighbor] = tentative_g + self._heuristic(neighbor, goal)
+                        
+                        if neighbor not in [pos for _, pos in open_set]:
+                            heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        
+        # 如果找不到路径，返回空遮罩
+        return np.zeros_like(view_semantic, dtype=np.uint8)
+
+    def _heuristic(self, pos1, pos2):
+        """
+        曼哈顿距离启发式函数
+        """
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
     def _apply_selective_blur(self, image, target_mask):
         """
@@ -863,11 +1103,20 @@ class SelectiveBlurWrapper(gym.Wrapper):
         semantic_map = info.get('semantic', None)
         player_pos = info.get('player_pos', [32, 32])
         view_size = info.get('view', [9, 9])
+
+        # 添加调试信息
+        # print(f"----   Real player position: {player_pos}")  # (32, 32)
+        # print(f"----   view_size: {view_size}")  # (9, 9)
+        # print(f"----   Info keys: {list(info.keys())}")
+
+        # processed_obs = obs
         
         if semantic_map is not None:
             try:
                 # 创建目标物体遮罩
-                target_mask = self._get_target_mask(semantic_map, player_pos, view_size, obs.shape)
+                target_mask = self._get_proportional_clear_mask(semantic_map, player_pos, view_size, obs.shape)
+
+                # self._debug_mask_alignment(semantic_map, player_pos, view_size, target_mask)
                 
                 # 应用选择性模糊
                 processed_obs = self._apply_selective_blur(obs, target_mask)

@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     config = {
         "generate_rule": False,
-        "test_episodes": 1,
+        "test_episodes": 10,
         "recorder": False,
         "recorder_res_path": "base_model_res",
         "init_items": ["wood_pickaxe"],

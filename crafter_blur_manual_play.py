@@ -40,47 +40,7 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         self._last_original_obs = None
         self._last_blurred_obs = None
         self._last_mask = None
-    
-    def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
-        """
-        重写目标物体遮罩创建方法，修复坐标系问题
-        """
-        px, py = player_pos
-        view_w, view_h = view_size
-        
-        # 计算视野范围
-        half_w, half_h = view_w // 2, view_h // 2
-        x1 = max(0, px - half_w)
-        y1 = max(0, py - half_h)
-        x2 = min(semantic_map.shape[0], px + half_w + 1)
-        y2 = min(semantic_map.shape[1], py + half_h + 1)
-        
-        # 提取视野区域的语义地图
-        view_semantic = semantic_map[x1:x2, y1:y2]
-        
-        # 创建目标物体遮罩
-        target_positions = (view_semantic == self.target_obj_id)
-        semantic_mask = target_positions.astype(np.uint8)
-        
-        # 将语义遮罩缩放到图像尺寸
-        img_h, img_w = image_shape[:2]
-        if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
-            # 直接转置：语义地图通常是 [y, x] 格式，需要转换为 [x, y] 格式以匹配图像
-            # 或者根据具体的坐标系约定进行调整
-            semantic_mask = semantic_mask.T  # 直接转置
-            
-            target_mask = cv2.resize(
-                semantic_mask.astype(np.float32),
-                (img_w, img_h),  # OpenCV格式: (width, height)
-                interpolation=cv2.INTER_NEAREST  # 使用NEAREST避免插值导致的问题
-            )
-            # 应用阈值以保持二值特性
-            target_mask = (target_mask > 0.5).astype(np.uint8)
-        else:
-            target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
-        
-        return target_mask
-    
+
     def render(self, size=None):
         """返回blur处理后的图像"""
         if hasattr(self, '_last_blurred_obs') and self._last_blurred_obs is not None:
@@ -107,11 +67,16 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
         semantic_map = info.get('semantic', None)
         player_pos = info.get('player_pos', [32, 32])
         view_size = info.get('view', [9, 9])
+
+        # # 添加调试信息
+        # print(f"----   Real player position: {player_pos}")
+        # print(f"----   view_size: {view_size}")
+        # print(f"----   Info keys: {list(info.keys())}")
         
         if semantic_map is not None:
             try:
                 # 创建目标物体遮罩
-                target_mask = self._get_target_mask(semantic_map, player_pos, view_size, original_obs.shape)
+                target_mask = self._get_proportional_clear_mask(semantic_map, player_pos, view_size, original_obs.shape)
                 self._last_mask = target_mask.copy()
                 
                 # 应用选择性模糊
@@ -230,7 +195,7 @@ def create_comparison_image(original, blurred, mask, target_name, step_count):
     if mask is not None:
         # 确保mask尺寸正确
         if mask.shape != (h, w):
-            print(f"Warning: Mask shape {mask.shape} != image shape {(h, w)}, resizing...")
+            # print(f"Warning: Mask shape {mask.shape} != image shape {(h, w)}, resizing...")
             mask_resized = cv2.resize(
                 mask.astype(np.float32), 
                 (w, h),  # OpenCV格式: (width, height)
@@ -595,8 +560,8 @@ def main():
                         if semantic_map is not None:
                             mask = env._get_target_mask(semantic_map, player_pos, view_size, obs.shape)
                             
-                            # 在终端打印blur矩阵
-                            print_blur_matrix(mask, step_count, target_name, target_found, target_pixels)
+                            # # 在终端打印blur矩阵
+                            # print_blur_matrix(mask, step_count, target_name, target_found, target_pixels)
                             
                             # 保存blur矩阵
                             if args.save_matrices:
@@ -647,8 +612,8 @@ def main():
                             target_found = np.sum(mask) > 0
                             target_pixels = int(np.sum(mask))
                             
-                            # 打印矩阵
-                            print_blur_matrix(mask, step_count, target_name, target_found, target_pixels)
+                            # # 打印矩阵
+                            # print_blur_matrix(mask, step_count, target_name, target_found, target_pixels)
                             
                             # 保存矩阵
                             if args.save_matrices:
