@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import json
 
 class RewardPlotCallback(BaseCallback):
-    """训练过程中的reward绘制回调 - 修复版本"""
+    """训练过程中的reward绘制回调 """
     
     def __init__(self, save_interval=1000, plot_filename="training_rewards.png", verbose=0):
         super().__init__(verbose)
@@ -46,7 +46,7 @@ class RewardPlotCallback(BaseCallback):
         return True
 
     def _plot_rewards(self):
-        """绘制reward折线图 - 优化版本"""
+        """绘制reward折线图 """
         if len(self.episode_rewards) < 5:
             return
 
@@ -58,11 +58,9 @@ class RewardPlotCallback(BaseCallback):
 
             plt.figure(figsize=(12, 6))
 
-            # 主图 - Reward趋势
             plt.subplot(1, 2, 1)
             episodes = range(1, len(self.episode_rewards) + 1)
 
-            # 原始reward曲线
             plt.plot(episodes, self.episode_rewards, 'b-', linewidth=1, alpha=0.3, label='Raw')
 
             # 移动平均线
@@ -74,17 +72,14 @@ class RewardPlotCallback(BaseCallback):
                     mode='valid'
                 )
 
-                # --- 这是修改的关键 ---
-                # 移动平均的X轴应该从 window_size 开始，并且长度与 moving_avg 匹配
+
                 x_axis_moving_avg = range(window_size, len(self.episode_rewards) - len(moving_avg) + window_size + len(
-                    moving_avg))  # 更简单的方式见下
-                # 一个更简单、更可靠的方式是：
-                # 移动平均值对应的是从第 `window_size - 1` 个 episode 到最后一个 episode 的窗口的平均值
-                # 所以x轴的起点应该是第 `window_size` 个 episode
+                    moving_avg))  #
+
                 x_axis_for_moving_avg = np.arange(window_size, len(self.episode_rewards) + 1)
 
                 plt.plot(
-                    x_axis_for_moving_avg,  # 使用修正后的X轴
+                    x_axis_for_moving_avg,
                     moving_avg,
                     'r-',
                     linewidth=2,
@@ -217,13 +212,13 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
     
     def step(self, action):
         """重写step方法，同时保存原始和blur处理的图像"""
-        # 先获取原始观察结果
+
         original_obs, reward, done, info = self.env.step(action)
         
-        # 保存原始图像
+
         self._last_original_obs = original_obs.copy()
         
-        # 获取必要的游戏信息
+
         semantic_map = info.get('semantic', None)
         player_pos = info.get('player_pos', [32, 32])
         view_size = info.get('view', [9, 9])
@@ -233,11 +228,10 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
                 # 创建目标物体遮罩
                 target_mask = self._get_proportional_clear_mask(semantic_map, player_pos, view_size, original_obs.shape)
                 self._last_mask = target_mask.copy()
-                
-                # 应用选择性模糊
+
                 blurred_obs = self._apply_selective_blur(original_obs, target_mask)
                 
-                # 保存blur处理后的图像
+
                 self._last_blurred_obs = blurred_obs.copy()
                 
                 # 添加调试信息
@@ -254,12 +248,11 @@ class SelectiveBlurWrapperWithRender(env_wrapper.SelectiveBlurWrapper):
                 
             except Exception as e:
                 print(f"SelectiveBlurWrapper error: {e}")
-                # 如果处理失败，返回原图像
+
                 self._last_blurred_obs = original_obs.copy()
                 self._last_mask = np.ones((original_obs.shape[0], original_obs.shape[1]), dtype=np.uint8)
                 return original_obs, reward, done, info
-        
-        # 如果没有语义地图，原样返回
+
         self._last_blurred_obs = original_obs.copy()
         self._last_mask = np.ones((original_obs.shape[0], original_obs.shape[1]), dtype=np.uint8)
         return original_obs, reward, done, info
@@ -278,11 +271,11 @@ def save_blur_matrix(mask, step_count, target_name, target_found, target_pixels,
     """
     os.makedirs(save_dir, exist_ok=True)
     
-    # 保存为numpy文件
+
     npy_file = os.path.join(save_dir, f"blur_mask_step_{step_count:04d}.npy")
     np.save(npy_file, mask)
     
-    # 保存为文本文件
+
     txt_file = os.path.join(save_dir, f"blur_mask_step_{step_count:04d}.txt")
     with open(txt_file, 'w') as f:
         f.write(f"Step {step_count} - Blur Mask Matrix\n")
@@ -303,8 +296,7 @@ def create_comparison_image(original, blurred, mask, target_name, step_count):
     创建对比图像：原图 | blur图 | mask
     """
     h, w = original.shape[:2]
-    
-    # 创建mask可视化（放大到与原图相同尺寸）
+
     mask_visual = np.zeros((h, w, 3), dtype=np.uint8)
     if mask is not None:
         # 确保mask尺寸正确
@@ -365,7 +357,7 @@ class TrainingVideoCallback(BaseCallback):
         """训练开始时初始化视频录制"""
         if self.save_video:
             try:
-                # 尝试不同的编码器
+
                 codecs = ['mp4v', 'avc1', 'H264', 'XVID']
                 self.video_writer = None
                 
@@ -374,8 +366,7 @@ class TrainingVideoCallback(BaseCallback):
                         fourcc = cv2.VideoWriter_fourcc(*codec)
                         video_width = self.video_size[0] * 3
                         video_height = self.video_size[1]
-                        
-                        # 使用.avi格式作为备选
+
                         video_ext = '.mp4' if codec in ['mp4v', 'avc1', 'H264'] else '.avi'
                         video_path = self.video_path.replace('.mp4', video_ext)
                         
@@ -436,7 +427,7 @@ class TrainingVideoCallback(BaseCallback):
                         mask = blur_wrapper.get_last_mask()
                         
                         if original_obs is not None and blurred_obs is not None and mask is not None:
-                            # 保存矩阵
+
                             if self.save_matrices and self.step_count % self.save_interval == 0:
                                 target_found = np.sum(mask) > 0
                                 target_pixels = int(np.sum(mask))
@@ -458,20 +449,17 @@ class TrainingVideoCallback(BaseCallback):
                                     blur_wrapper.target_obj_name,
                                     self.step_count
                                 )
-                                
-                                # 调整尺寸
+
                                 if comparison_img.shape[:2] != (self.video_size[1], self.video_size[0] * 3):
                                     comparison_img = cv2.resize(
                                         comparison_img,
                                         (self.video_size[0] * 3, self.video_size[1]),
                                         interpolation=cv2.INTER_NEAREST
                                     )
-                                
-                                # 录制视频（OpenCV使用BGR格式）
+
                                 video_frame = cv2.cvtColor(comparison_img, cv2.COLOR_RGB2BGR)
                                 self.video_writer.write(video_frame)
-                        
-                        # 收集统计信息
+
                         if hasattr(blur_wrapper, '_last_info'):
                             info = blur_wrapper._last_info
                             if 'selective_blur' in info:
@@ -493,8 +481,7 @@ class TrainingVideoCallback(BaseCallback):
         if self.video_writer:
             self.video_writer.release()
             print(f"Video saved: {self.video_path}")
-        
-        # 打印统计信息
+
         if self.blur_stats:
             target_found_rate = sum(1 for s in self.blur_stats if s['target_found']) / len(self.blur_stats)
             avg_target_pixels = np.mean([s['target_pixels'] for s in self.blur_stats])
@@ -507,8 +494,7 @@ def train_with_selective_blur():
     """
     Train agent with selective blur with video recording and data saving
     """
-    
-    # 解析命令行参数
+
     parser = argparse.ArgumentParser(description='Train PPO with selective blur')
     parser.add_argument('--target_obj_id', type=int, default=3, help='Target object ID (3=stone)')
     parser.add_argument('--target_obj_name', type=str, default='stone', help='Target object name')

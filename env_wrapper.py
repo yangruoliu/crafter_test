@@ -1043,7 +1043,7 @@ class SelectiveBlurWrapper(gym.Wrapper):
         Returns:
             processed_image: 处理后的图像
         """
-        # 创建模糊版本
+
         blurred = cv2.GaussianBlur(image, (self.blur_strength, self.blur_strength), 0)
         
         # 对遮罩进行轻微平滑处理
@@ -1052,7 +1052,7 @@ class SelectiveBlurWrapper(gym.Wrapper):
         # 扩展遮罩到三个通道
         mask_3d = np.stack([smooth_mask] * 3, axis=2)
         
-        # 选择性混合：目标区域保持原图，其他区域使用模糊图
+
         result = mask_3d * image + (1 - mask_3d) * blurred
         
         return result.astype(np.uint8)

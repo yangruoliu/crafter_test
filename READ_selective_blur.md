@@ -36,7 +36,7 @@ target_obj_id: 目标物体ID
 - 8: coal (煤炭) 
 - 9: iron (铁矿)
 
-blur_strength: 模糊强度 (建议15-25，必须是奇数)
+blur_strength: 模糊强度 
 
 === 预期效果 ===
 - 加速目标物体的发现和导航
@@ -49,48 +49,24 @@ blur_strength: 模糊强度 (建议15-25，必须是奇数)
 - 结合其他视觉增强技术
 """
 
-def show_usage_examples():
-    """显示使用示例"""
-    
-    print(__doc__)
-    
-    print("\n=== 代码示例 ===")
-    
-    example_code = '''
-# 基础使用示例
-import gym
-import env_wrapper
+主要代码
+```
+env_wrapper.py # 最后的wrapper
 
-# 创建环境
-env = gym.make("MyCrafter-v0")
-env = env_wrapper.MineStoneWrapper(env)
-env = env_wrapper.InitWrapper(env, ["wood_pickaxe"], [1])
+env_wrapper_v_a_star.py 这个wrapper代码和上面一样的，是因为在服务器上跑的时候想做对比实验看，所以随便看一个就行
 
-# 应用选择性模糊 (针对石头)
-env = env_wrapper.SelectiveBlurWrapper(
-    env, 
-    target_obj_id=3,           # 石头ID
-    target_obj_name="stone",   # 便于调试
-    blur_strength=15           # 模糊强度
-)
+crafter_blur_manual_play.py # 这里是手动check blur 效果的代码
 
-# 正常使用
-obs = env.reset()
-action = env.action_space.sample()
-obs, reward, done, info = env.step(action)
+train_with_blur.py  
 
-# 查看处理效果
-blur_info = info.get('selective_blur', {})
-print(f"目标发现: {blur_info.get('target_found', False)}")
-'''
-    
-    print(example_code)
+test_with_blur.py  
+```
+上述代码train 或者 test 的过程中会有一些视频和图片的记录，视频和图片的路径可能有点乱，这里没太细改，但是问题不大，可以看
 
-if __name__ == "__main__":
-    show_usage_examples()
+建议test在本地进行，可以看效果。
 
 
-'''
+```
 training_videos_20241201_143052/    # 训练视频
 ├── training_step_50000_*.mp4
 ├── training_step_100000_*.mp4
@@ -109,13 +85,13 @@ comparison_videos_20241201_143052/  # 对比视频
 │   ├── test_episode_1_*.mp4
 │   └── test_episode_2_*.mp4
 └── side_by_side_comparison.mp4
-'''
+```
+
+
 
 ```
-# 训练并录制视频
 CUDA_VISIBLE_DEVICES=1 python train_with_blur.py
 
-# 测试并录制视频
 CUDA_VISIBLE_DEVICES=1 python test_with_blur.py
 ```
 # 个人记录
