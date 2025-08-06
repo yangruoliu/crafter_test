@@ -1,0 +1,13 @@
+=== Selective blur training configuration ===
+total_timesteps: 2000000
+save_dir: RL_models_zdl/stone_with_blur_v2_a_star
+model_name: stone_with_blur_v2_a_star
+init_items: ['wood_pickaxe']
+init_num: [1]
+target_obj_id: 6
+target_obj_name: tree
+blur_strength: 6
+timestamp: 20250805_233656
+
+ent_coef: 0.01
+learning_rate: 0.0002

@@ -1,0 +1,21 @@
+=== Selective blur training configuration ===
+total_timesteps: 2000000
+save_dir: RL_models_zdl/stone_with_blur_20250802_113805
+model_name: stone_with_blur_20250802_113805
+init_items: ['wood_pickaxe']
+init_num: [1]
+target_obj_id: 3
+target_obj_name: stone
+blur_strength: 3
+timestamp: 20250802_113805
+
+=== Command line arguments ===
+target_obj_id: 3
+target_obj_name: stone
+blur_strength: 3
+total_timesteps: 2000000
+save_video: True
+save_matrices: True
+video_size: [600, 600]
+video_fps: 10
+save_interval: 100

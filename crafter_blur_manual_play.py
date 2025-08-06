@@ -241,9 +241,9 @@ def main():
     parser.add_argument('--death', type=str, default='reset', choices=['continue', 'reset', 'quit'])
     
     # Blur相关参数
-    parser.add_argument('--target_obj_id', type=int, default=3, help='Target object ID (3=stone, 8=coal, 9=iron)')
-    parser.add_argument('--target_obj_name', type=str, default='stone', help='Target object name')
-    parser.add_argument('--blur_strength', type=int, default=21, help='Blur strength (must be odd)')
+    parser.add_argument('--target_obj_id', type=int, default=6, help='Target object ID (3=stone, 8=coal, 9=iron)')
+    parser.add_argument('--target_obj_name', type=str, default='tree', help='Target object name')
+    parser.add_argument('--blur_strength', type=int, default=6, help='Blur strength (must be odd)')
     parser.add_argument('--save_matrices', type=boolean, default=True, help='Save blur matrices to files')
     parser.add_argument('--matrix_save_dir', type=str, default='blur_matrices', help='Directory to save matrices')
     

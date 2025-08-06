@@ -214,12 +214,12 @@ if __name__ == "__main__":
         "init_num": [1],
         "render": True,
         "stack_size": 1,
-        "model_name": None,  # Will be auto-selected
+        "model_name": "stone_with_blur_v1",  # Will be auto-selected
         "save_video": True,
         "video_dir": "test_videos",
         "target_obj_id": 3,
         "target_obj_name": "stone",
-        "blur_strength": 3
+        "blur_strength": 6
     }
 
     generate_rule = config["generate_rule"]
@@ -233,6 +233,8 @@ if __name__ == "__main__":
             save_episode=False,
         )
     env = env_wrapper.InitWrapper(env, init_items=config["init_items"], init_num=config["init_num"])
+
+    env = env_wrapper.MineStoneWrapper(env)
 
     # Auto-select model if not specified
     if config["model_name"] is None:

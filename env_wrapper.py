@@ -779,53 +779,6 @@ class SelectiveBlurWrapper(gym.Wrapper):
         # 定义世界视野在垂直方向上所占的比例 (7行世界 / 9行总视野)
         self.WORLD_VIEW_HEIGHT_RATIO = 7.0 / 9.0
 
-    # def _get_target_mask(self, semantic_map, player_pos, view_size, image_shape):
-    #     """
-    #     创建目标物体遮罩
-        
-    #     Args:
-    #         semantic_map: 游戏语义地图 (64x64)
-    #         player_pos: 玩家位置 [x, y]
-    #         view_size: 视野大小 [width, height]
-    #         image_shape: 图像形状 [height, width, channels]
-        
-    #     Returns:
-    #         target_mask: 目标物体遮罩，1表示目标物体区域，0表示其他区域
-    #     """
-    #     px, py = player_pos
-    #     view_w, view_h = view_size
-        
-    #     # 计算视野范围
-    #     half_w, half_h = view_w // 2, view_h // 2
-    #     x1 = max(0, px - half_w)
-    #     y1 = max(0, py - half_h)
-    #     x2 = min(semantic_map.shape[0], px + half_w + 1)
-    #     y2 = min(semantic_map.shape[1], py + half_h + 1)
-        
-    #     # 提取视野区域的语义地图
-    #     view_semantic = semantic_map[x1:x2, y1:y2]
-    #     print(f"----   view_semantic: {view_semantic}")
-        
-    #     # 创建目标物体遮罩
-    #     target_positions = (view_semantic == self.target_obj_id) | (view_semantic == 13)
-    #     semantic_mask = target_positions.astype(np.uint8)
-        
-    #     # 将语义遮罩缩放到图像尺寸
-    #     img_h, img_w = image_shape[:2]
-    #     if semantic_mask.shape[0] > 0 and semantic_mask.shape[1] > 0:
-    #         semantic_mask = semantic_mask.T
-            
-    #         target_mask = cv2.resize(
-    #             semantic_mask.astype(np.float32),
-    #             (img_w, img_h),
-    #             interpolation=cv2.INTER_LINEAR
-    #         )
-    #         # 应用阈值以保持二值特性
-    #         target_mask = (target_mask > 0.3).astype(np.uint8)
-    #     else:
-    #         target_mask = np.zeros((img_h, img_w), dtype=np.uint8)
-        
-    #     return target_mask
 
     def _get_proportional_clear_mask(self, semantic_map, player_pos, view_size, image_shape):
         """
@@ -858,23 +811,23 @@ class SelectiveBlurWrapper(gym.Wrapper):
         target_indices = list(zip(*np.where(view_semantic == self.target_obj_id)))
         
         if target_indices:
-            # 玩家在视野中心的位置
+            
             player_pos_in_view = (half_w, half_h) # (x, y) 格式
 
-            # 找到最近的目标物体
+           
             closest_target = min(target_indices, key=lambda pos: self._heuristic(pos, player_pos_in_view))
             
-            # 转置语义地图以匹配 (y, x) 坐标系
+            
             view_semantic_transposed = view_semantic.T
             
-            # A* 寻路的起点和终点需要是 (y, x) 格式
+          
             start_node = (player_pos_in_view[1], player_pos_in_view[0])
             goal_node = (closest_target[1], closest_target[0])
             
             # 调用 A* 算法寻找路径
             path = self._find_shortest_path(view_semantic_transposed, start_node, goal_node)
             
-            # 如果找到路径，将路径上的点也加入清晰蒙版
+            
             if path:
                 for y, x in path:
                     # 注意：在原始的 (宽度, 高度) 蒙版上更新
@@ -883,8 +836,7 @@ class SelectiveBlurWrapper(gym.Wrapper):
 
 
         clear_semantic_mask = clear_semantic_mask.T.astype(np.uint8)
-        # 将7x9语义蒙版缩放到世界视野的像素尺寸 (64x50) ---
-        # 注意：cv2.resize的尺寸参数是(宽度, 高度)
+        
         world_view_mask = cv2.resize(
             clear_semantic_mask,
             (img_w, world_view_px_h), # 缩放到 (64, 50)
@@ -893,10 +845,10 @@ class SelectiveBlurWrapper(gym.Wrapper):
 
         final_mask = np.zeros(image_shape[:2], dtype=np.uint8)
         
-        # 将64x50的世界蒙版放到最终蒙版的上半部分
+        
         final_mask[0:world_view_px_h, :] = world_view_mask
         
-        # 将最终蒙版的下半部分（UI区域）全部设为1（清晰）
+        
         final_mask[world_view_px_h:img_h, :] = 1 # 1代表清晰
         
         return final_mask
@@ -1031,8 +983,8 @@ class SelectiveBlurWrapper(gym.Wrapper):
                 包含路径坐标的列表，如果找不到路径则返回空列表。
         """
         # 定义在语义地图上哪些物体是不可通过的障碍物
-        # ID: 1=water, 6=tree, 7=lava (根据Crafter游戏定义调整)
-        obstacles_ids = {1, 6, 7}
+        # ID: 1=water,  7=lava (根据Crafter游戏定义调整)
+        obstacles_ids = {1,  7}
 
         # 初始化
         open_set = [(0, start)]  # 优先队列，存储 (f_score, position)
