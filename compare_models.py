@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 
 import gym
 import numpy as np
@@ -13,6 +13,11 @@ import numpy as np
 import crafter  # noqa: F401
 import env_wrapper
 from my_label_oracle import get_label
+
+# Optional plotting (only import when needed)
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 # Import custom algo/policy implementations
 # Add alias to be compatible with models saved with different module paths
@@ -118,6 +123,9 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
 
     # Direction metrics if available
     dir_accs: List[float] = []
+    # Per-episode data for plotting
+    episode_rewards: List[float] = []
+    episode_success: List[int] = []
 
     for _ in range(num_episodes):
         obs = env.reset()
@@ -171,6 +179,8 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
         total_rewards.append(ep_reward)
         total_steps.append(steps)
         completions.append(bool(done))
+        episode_rewards.append(ep_reward)
+        episode_success.append(1 if done else 0)
 
         if dir_count > 0:
             dir_accs.append(dir_hits / dir_count)
@@ -178,16 +188,64 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
     summary: Dict = {
         "reward_mean": float(np.mean(total_rewards)),
         "reward_std": float(np.std(total_rewards)),
+        "reward_min": float(np.min(total_rewards) if total_rewards else 0.0),
+        "reward_max": float(np.max(total_rewards) if total_rewards else 0.0),
+        "reward_median": float(np.median(total_rewards) if total_rewards else 0.0),
         "steps_mean": float(np.mean(total_steps)),
         "steps_std": float(np.std(total_steps)),
+        "steps_min": int(np.min(total_steps) if total_steps else 0),
+        "steps_max": int(np.max(total_steps) if total_steps else 0),
+        "steps_median": float(np.median(total_steps) if total_steps else 0.0),
         "completion_rate": float(np.mean(completions)),
         "episodes": num_episodes,
+        "episodes_rewards": episode_rewards,
+        "episodes_success": episode_success,
+        "cumulative_completion": (np.cumsum(episode_success) / np.maximum(1, np.arange(1, len(episode_success) + 1))).tolist() if episode_success else [],
+        "reward_auc": float(np.trapz(episode_rewards, dx=1.0)),
+        "first_success_episode": int(np.argmax(episode_success) + 1) if any(episode_success) else None,
     }
     if len(dir_accs) > 0:
         summary["direction_accuracy_mean"] = float(np.mean(dir_accs))
         summary["direction_accuracy_std"] = float(np.std(dir_accs))
 
     return summary
+
+
+def plot_single_task_curves(results: Dict[str, Dict[str, Dict[str, Any]]], task_id: str, plot_path: str) -> None:
+    # results[model_name][task_id] -> summary
+    plt.figure(figsize=(10, 6))
+    # Subplot 1: reward per episode
+    ax1 = plt.subplot(2, 1, 1)
+    for model_name, task_map in results.items():
+        s = task_map.get(task_id, {})
+        rewards = s.get("episodes_rewards", [])
+        if rewards:
+            ax1.plot(range(1, len(rewards) + 1), rewards, label=model_name)
+    ax1.set_title(f"Reward Curve per Episode - Task: {task_id}")
+    ax1.set_xlabel("Episode")
+    ax1.set_ylabel("Total Reward")
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+
+    # Subplot 2: cumulative completion rate
+    ax2 = plt.subplot(2, 1, 2)
+    for model_name, task_map in results.items():
+        s = task_map.get(task_id, {})
+        success = s.get("episodes_success", [])
+        if success:
+            success = np.array(success, dtype=float)
+            cum_rate = np.cumsum(success) / np.maximum(1, np.arange(1, len(success) + 1))
+            ax2.plot(range(1, len(success) + 1), cum_rate, label=model_name)
+    ax2.set_title("Cumulative Completion Rate")
+    ax2.set_xlabel("Episode")
+    ax2.set_ylabel("Completion Rate")
+    ax2.set_ylim(0.0, 1.0)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
 
 
 def print_comparison_table(results: Dict[str, Dict[str, Dict]]):
@@ -242,6 +300,7 @@ def main():
     parser.add_argument("--episodes", type=int, default=10, help="每个任务的评测回合数")
     parser.add_argument("--max-steps", type=int, default=1000, help="每回合最大步数")
     parser.add_argument("--save-json", type=str, default=None, help="将结果保存到指定json路径")
+    parser.add_argument("--plot-path", type=str, default=None, help="当评测单一任务时，保存Reward/完成率曲线图的路径")
 
     args = parser.parse_args()
 
@@ -322,6 +381,12 @@ def main():
         with open(args.save_json, "w", encoding="utf-8") as f:
             json.dump({"results": all_results, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}, f, indent=2, ensure_ascii=False)
         print(f"\n结果已保存到: {args.save_json}")
+
+    # Plot curves if only a single task is evaluated and plot path provided
+    if args.plot_path and len(tasks) == 1:
+        task_id = tasks[0].id
+        plot_single_task_curves(all_results, task_id=task_id, plot_path=args.plot_path)
+        print(f"曲线图已保存到: {args.plot_path}")
 
 
 if __name__ == "__main__":
