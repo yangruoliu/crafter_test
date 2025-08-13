@@ -29,9 +29,12 @@ import time
 from typing import List
 
 DEFAULT_MODELS = {
-    "v4": ("direction_dynamic", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
-    "v5": ("direction_dynamic", "/home/crafter_zelda/crafter_test/stone_with_direction_v5_20250804_153025.zip"),
-    "base": ("direction_fixed", "/home/crafter_zelda/crafter_test/stone_with_direction.zip"),
+    "v1": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
+    "v2": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
+    "v3": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
+    "v4": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
+    "v5": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v5_20250804_153025.zip"),
+    "base": ("no_direction", "/home/crafter_zelda/crafter_test/stone_with_direction.zip"),
 }
 
 TASKS: List[str] = [
@@ -71,9 +74,12 @@ def main():
 
     # Compose model dict
     models = {
-        "v4": ("direction_dynamic", args.model_v4),
-        "v5": ("direction_dynamic", args.model_v5),
-        "base": ("direction_fixed", args.model_base),
+        "v1": ("direction", args.model_v1),
+        "v4": ("direction", args.model_v2),
+        "v4": ("direction", args.model_v3),
+        "v4": ("direction", args.model_v4),
+        "v5": ("direction", args.model_v5),
+        "base": ("no_direction", args.model_base),
     }
 
     # Resolve output directory
