@@ -1,13 +1,19 @@
 from PIL.Image import Palette
 from config import SYS_PROMPT
 import llm_utils
-import gym
+try:
+    import gym
+except Exception:
+    import gymnasium as gym
 import numpy as np
 import llm_prompt
 import random
 from llm_attention_map import parse_seen_objects, build_attn_map, convert_to_rgb_image_pil
 import matplotlib.pyplot as plt
-from gym import spaces
+try:
+    from gym import spaces
+except Exception:
+    from gymnasium import spaces
 
 def face_at(obs):
 

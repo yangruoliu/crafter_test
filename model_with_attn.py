@@ -1,10 +1,19 @@
 from importlib.metadata import distribution
-from gymnasium.envs.registration import EnvCreator
+try:
+    from gymnasium.envs.registration import EnvCreator
+except Exception:
+    try:
+        from gym.envs.registration import EnvCreator
+    except Exception:
+        EnvCreator = None  # not used directly
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-import gym
+try:
+    import gym
+except Exception:
+    import gymnasium as gym
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.callbacks import BaseCallback
 import numpy as np
@@ -12,7 +21,10 @@ from stable_baselines3.common.buffers import RolloutBuffer
 from torch.nn.modules import adaptive
 from tqdm import tqdm
 from stable_baselines3 import PPO
-from gym import spaces
+try:
+    from gym import spaces
+except Exception:
+    from gymnasium import spaces
 from stable_baselines3.common.buffers import DictRolloutBuffer
 from stable_baselines3.common.utils import  explained_variance
 
