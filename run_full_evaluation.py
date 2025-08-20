@@ -29,12 +29,12 @@ import time
 from typing import List
 
 DEFAULT_MODELS = {
-    "v1": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
-    "v2": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
-    "v3": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
-    "v4": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250804_145854.zip"),
-    "v5": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v5_20250804_153025.zip"),
-    "base": ("no_direction", "/home/crafter_zelda/crafter_test/stone_with_direction.zip"),
+    "v1": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_improved_20250813_142225.zip"),
+    "v2": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_fixed_20250813_142210.zip"),
+    "v3": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_final_20250813_142007.zip"),
+    "v4": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250813_141852.zip"),
+    "v5": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v5_20250813_122504.zip"),
+    "base": ("no_direction", "/home/crafter_zelda/crafter_test/stone.zip"),
 }
 
 TASKS: List[str] = [
@@ -66,6 +66,11 @@ def main():
     parser.add_argument("--episodes", type=int, default=50, help="Episodes per task")
     parser.add_argument("--max-steps", type=int, default=1000, help="Max steps per episode")
     parser.add_argument("--out-dir", type=str, default=None, help="Output base directory; default under model dir with timestamp")
+
+    parser.add_argument("--model-v1", type=str, default=DEFAULT_MODELS["v1"][1], help="Path to v1 model")
+    parser.add_argument("--model-v2", type=str, default=DEFAULT_MODELS["v2"][1], help="Path to v2 model")
+    parser.add_argument("--model-v3", type=str, default=DEFAULT_MODELS["v3"][1], help="Path to v3 model")
+ 
     parser.add_argument("--model-v4", type=str, default=DEFAULT_MODELS["v4"][1], help="Path to v4 dynamic model")
     parser.add_argument("--model-v5", type=str, default=DEFAULT_MODELS["v5"][1], help="Path to v5 dynamic model")
     parser.add_argument("--model-base", type=str, default=DEFAULT_MODELS["base"][1], help="Path to base fixed-weight model")
@@ -75,8 +80,8 @@ def main():
     # Compose model dict
     models = {
         "v1": ("direction", args.model_v1),
-        "v4": ("direction", args.model_v2),
-        "v4": ("direction", args.model_v3),
+        "v2": ("direction", args.model_v2),
+        "v3": ("direction", args.model_v3),
         "v4": ("direction", args.model_v4),
         "v5": ("direction", args.model_v5),
         "base": ("no_direction", args.model_base),

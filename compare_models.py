@@ -84,11 +84,11 @@ def build_env_for_task(task: TaskSpec, model_kind: str) -> gym.Env:
         env = env_wrapper.InitWrapper(env, init_items=task.init_items, init_num=task.init_num)
 
     # Final wrapper depends on model kind to ensure observation space matches the model
-    if model_kind in ("direction_dynamic", "direction_fixed"):
+    if model_kind in ("direction"):
         # Use DirectionLabelWrapper; default to stone(7) when not specified
         target_id = task.direction_obj_id if task.direction_obj_id is not None else 7
         env = env_wrapper.DirectionLabelWrapper(env, target_obj_id=target_id, target_obj_name="target")
-    elif model_kind == "attn_only":
+    elif model_kind == "no_direction":
         # Use LabelGeneratingWrapper; default label name if missing
         label_name = task.aux_label_name if task.aux_label_name is not None else "stone"
         env = env_wrapper.LabelGeneratingWrapper(env, get_label_func=get_label, target_obj=label_name, num_aux_classes=2)
@@ -281,7 +281,7 @@ def print_comparison_table(results: Dict[str, Dict[str, Dict]]):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="对比三种训练方案模型在多任务上的指标")
+    parser = argparse.ArgumentParser(description="对比6种训练方案模型在多任务上的指标")
     parser.add_argument(
         "--model",
         action="append",
