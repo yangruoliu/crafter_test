@@ -114,35 +114,53 @@ def _start_heartbeat(prefix: str = "  Loading", interval_sec: int = 5):
     return stop_fn
 
 
-def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu", timeout_sec: int = 60):
+def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu", timeout_sec: int = 60, model_kind: str = "direction"):
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
     # Prefer loading without env first to avoid potential hangs during wrapper setup
     file_size = os.path.getsize(model_spec.path) if os.path.exists(model_spec.path) else -1
-    print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} (no env) ...", flush=True)
-
     result: dict[str, Any] = {"model": None, "error": None}
-    def loader():
-        try:
-            mdl = CustomPPO.load(model_spec.path, device=device)
-            mdl.set_env(env)
-            result["model"] = mdl
-        except Exception as exc:
-            result["error"] = exc
 
-    hb_stop = _start_heartbeat(prefix=f"    still loading '{model_spec.name}'", interval_sec=5)
-    t = threading.Thread(target=loader, daemon=True)
-    t.start()
-    t.join(timeout=timeout_sec)
-    hb_stop()
+    # Choose loading strategy based on model kind
+    if model_kind == "no_direction":
+        print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} WITH env ...", flush=True)
+
+        def loader():
+            try:
+                mdl = CustomPPO.load(model_spec.path, env=env, device=device)
+                result["model"] = mdl
+            except Exception as exc:
+                result["error"] = exc
+
+        hb_stop = _start_heartbeat(prefix=f"    still loading (with env) '{model_spec.name}'", interval_sec=5)
+        t = threading.Thread(target=loader, daemon=True)
+        t.start()
+        t.join(timeout=timeout_sec)
+        hb_stop()
+    else:
+        print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} (no env) ...", flush=True)
+
+        def loader():
+            try:
+                mdl = CustomPPO.load(model_spec.path, device=device)
+                mdl.set_env(env)
+                result["model"] = mdl
+            except Exception as exc:
+                result["error"] = exc
+
+        hb_stop = _start_heartbeat(prefix=f"    still loading '{model_spec.name}'", interval_sec=5)
+        t = threading.Thread(target=loader, daemon=True)
+        t.start()
+        t.join(timeout=timeout_sec)
+        hb_stop()
 
     if t.is_alive():
         print(f"  Timeout after {timeout_sec}s while loading '{model_spec.name}'. Skipping this model.", flush=True)
         raise RuntimeError(f"load-timeout:{model_spec.name}")
     if result["error"] is not None:
         raise RuntimeError(f"Failed to load model '{model_spec.name}': {result['error']}")
-    print(f"  Model '{model_spec.name}' loaded and env attached.", flush=True)
+    print(f"  Model '{model_spec.name}' loaded successfully.", flush=True)
     return result["model"]
 
 
@@ -403,7 +421,7 @@ def main():
             env = build_env_for_task(task, spec.kind)
             print(f"  Env ready for task '{task.id}'.", flush=True)
             try:
-                model = load_model(spec, env, device=args.device, timeout_sec=args.load_timeout_sec)
+                model = load_model(spec, env, device=args.device, timeout_sec=args.load_timeout_sec, model_kind=spec.kind)
             except RuntimeError as e:
                 if str(e).startswith("load-timeout:"):
                     print(f"  Skip model '{spec.name}' due to load timeout.", flush=True)
