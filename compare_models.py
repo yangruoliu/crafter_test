@@ -120,7 +120,7 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
     episode_rewards: List[float] = []
     episode_success: List[int] = []
 
-    for _ in range(num_episodes):
+    for ep_idx in range(num_episodes):
         obs = env.reset()
         done = False
         ep_reward = 0.0
@@ -162,6 +162,10 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
             except Exception:
                 pass
 
+            # Heartbeat for long episodes
+            if steps % 200 == 0:
+                print(f"    ep {ep_idx+1}/{num_episodes}: {steps}/{max_steps} steps", flush=True)
+
             if dir_results is not None:
                 try:
                     if isinstance(obs, dict) and "direction_label" in obs:
@@ -171,6 +175,12 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
                         dir_count += 1
                 except Exception:
                     pass
+
+        # Per-episode progress line
+        print(
+            f"  ep {ep_idx+1}/{num_episodes}: reward={ep_reward:.1f}, success={1 if success_happened else 0}, steps={steps}",
+            flush=True,
+        )
 
         total_rewards.append(ep_reward)
         total_steps.append(steps)
