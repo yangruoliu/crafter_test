@@ -93,17 +93,21 @@ def build_env_for_task(task: TaskSpec, model_kind: str) -> gym.Env:
     return env
 
 
-def load_model(model_spec: ModelSpec, env: gym.Env):
+def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu"):
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
     try:
-        model = CustomPPO.load(model_spec.path, env=env)
+        print(f"  Loading model '{model_spec.name}' from {model_spec.path} on device={device} ...", flush=True)
+        model = CustomPPO.load(model_spec.path, env=env, device=device)
+        print(f"  Loaded model '{model_spec.name}'.", flush=True)
         return model
     except Exception as e:
         try:
-            model = CustomPPO.load(model_spec.path)
+            print(f"  Fallback load without env for '{model_spec.name}' ...", flush=True)
+            model = CustomPPO.load(model_spec.path, device=device)
             model.set_env(env)
+            print(f"  Set env for '{model_spec.name}'.", flush=True)
             return model
         except Exception as e2:
             raise RuntimeError(f"Failed to load model '{model_spec.name}' from {model_spec.path}: {e} / {e2}")
@@ -121,7 +125,9 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
     episode_success: List[int] = []
 
     for ep_idx in range(num_episodes):
+        print(f"  Resetting env for episode {ep_idx+1}/{num_episodes} ...", flush=True)
         obs = env.reset()
+        print(f"  Env reset ok for episode {ep_idx+1}/{num_episodes}.", flush=True)
         done = False
         ep_reward = 0.0
         steps = 0
@@ -302,6 +308,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=1000, help="每回合最大步数")
     parser.add_argument("--save-json", type=str, default=None, help="将结果保存到指定json路径")
     parser.add_argument("--plot-path", type=str, default=None, help="当评测单一任务时，保存Reward/完成率曲线图的路径")
+    parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda", "cuda:0", "cuda:1"], help="加载模型所用设备，默认cpu")
 
     args = parser.parse_args()
 
@@ -350,7 +357,7 @@ def main():
         for task in tasks:
             print(f"\n>> 任务: {task.id} - {task.description}")
             env = build_env_for_task(task, spec.kind)
-            model = load_model(spec, env)
+            model = load_model(spec, env, device=args.device)
             summary = evaluate_on_env(
                 model, env, model_kind=spec.kind, num_episodes=args.episodes, max_steps=args.max_steps
             )
