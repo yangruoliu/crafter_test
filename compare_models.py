@@ -5,6 +5,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
+import threading
 
 try:
     import gym
@@ -93,14 +94,37 @@ def build_env_for_task(task: TaskSpec, model_kind: str) -> gym.Env:
     return env
 
 
+def _start_heartbeat(prefix: str = "  Loading", interval_sec: int = 5):
+    stop = {"flag": False}
+
+    def runner():
+        ticks = 0
+        while not stop["flag"]:
+            if ticks > 0:
+                print(f"{prefix} ... {ticks*interval_sec}s", flush=True)
+            time.sleep(interval_sec)
+            ticks += 1
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
+
+    def stop_fn():
+        stop["flag"] = True
+
+    return stop_fn
+
+
 def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu"):
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
     # Prefer loading without env first to avoid potential hangs during wrapper setup
     try:
-        print(f"  Loading model '{model_spec.name}' from {model_spec.path} on device={device} (no env) ...", flush=True)
+        file_size = os.path.getsize(model_spec.path) if os.path.exists(model_spec.path) else -1
+        print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} (no env) ...", flush=True)
+        hb_stop = _start_heartbeat(prefix=f"    still loading '{model_spec.name}'", interval_sec=5)
         model = CustomPPO.load(model_spec.path, device=device)
+        hb_stop()
         print(f"  Model weights loaded. Now attaching env ...", flush=True)
         model.set_env(env)
         print(f"  Env attached to model '{model_spec.name}'.", flush=True)
@@ -109,7 +133,9 @@ def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu"):
         # As a fallback, try loading with env directly
         try:
             print(f"  Fallback: load with env for '{model_spec.name}' ...", flush=True)
+            hb_stop = _start_heartbeat(prefix=f"    still loading (with env) '{model_spec.name}'", interval_sec=5)
             model = CustomPPO.load(model_spec.path, env=env, device=device)
+            hb_stop()
             print(f"  Loaded model '{model_spec.name}' with env.", flush=True)
             return model
         except Exception as e2:
@@ -314,6 +340,15 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda", "cuda:0", "cuda:1"], help="加载模型所用设备，默认cpu")
 
     args = parser.parse_args()
+
+    # For cpu mode, hard-disable CUDA visibility to avoid accidental GPU init that may hang
+    if args.device.startswith("cpu"):
+        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        try:
+            import torch
+            torch.set_num_threads(max(1, (os.cpu_count() or 2)//2))
+        except Exception:
+            pass
 
     # Parse models
     model_specs: List[ModelSpec] = []
