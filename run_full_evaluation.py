@@ -100,7 +100,9 @@ def main():
 
     # Resolve output directory
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    out_dir = args.out_dir or f"/home/crafter_zelda/crafter_test/full_eval_{timestamp}"
+    # Default to a writable directory under the repo if not provided
+    default_base = os.path.dirname(os.path.abspath(__file__))
+    out_dir = args.out_dir or os.path.join(default_base, f"full_eval_{timestamp}")
     os.makedirs(out_dir, exist_ok=True)
 
     compare_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "compare_models.py"))
@@ -133,6 +135,9 @@ def main():
         "--save-json", all_json,
     ]
     run_cmd(cmd_all)
+    # Verify output exists
+    if not (os.path.exists(all_json) and os.path.getsize(all_json) > 0):
+        raise SystemExit(f"Expected JSON not found or empty: {all_json}")
 
     # 2) Run each task individually to produce per-task JSON and PNG
     for task in TASKS:
@@ -150,6 +155,11 @@ def main():
             "--plot-path", task_png,
         ]
         run_cmd(cmd_task)
+        # Verify per-task outputs
+        if not (os.path.exists(task_json) and os.path.getsize(task_json) > 0):
+            raise SystemExit(f"Expected JSON not found or empty: {task_json}")
+        if not os.path.exists(task_png):
+            raise SystemExit(f"Expected plot not found: {task_png}")
 
     print("\nDone.")
     print("Outputs:")
