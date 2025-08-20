@@ -1,4 +1,7 @@
-from gym.envs.registration import register
+try:
+    from gym.envs.registration import register
+except Exception:
+    from gymnasium.envs.registration import register
 
 from .crafter_env import Crafter
 
