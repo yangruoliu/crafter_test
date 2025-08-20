@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Optional, Any
 
 try:
     import gym
@@ -23,9 +23,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # Import custom algo/policy implementations
-# Add alias to be compatible with models saved with different module paths
-import importlib
-
 try:
     import model_with_attn as mwa
 except Exception:
@@ -43,20 +40,16 @@ CustomPPO = getattr(mwa, "CustomPPO", None)
 class ModelSpec:
     name: str
     path: str
-    kind: str  # one of: "direction_dynamic", "direction_fixed", "attn_only"
+    kind: str  # one of: "direction" or "no_direction"
 
 
 @dataclass
 class TaskSpec:
     id: str
     description: str
-    # object id used by DirectionLabelWrapper (if applicable)
     direction_obj_id: Optional[int]
-    # label string for LabelGeneratingWrapper (if applicable)
     aux_label_name: Optional[str]
-    # whether to give starting wood_pickaxe = 1
     needs_pickaxe: bool = False
-    # optional per-task init items
     init_items: Optional[List[str]] = None
     init_num: Optional[List[int]] = None
 
@@ -68,7 +61,6 @@ def build_env_for_task(task: TaskSpec, model_kind: str) -> gym.Env:
     if task.id == "mine_stone":
         env = env_wrapper.MineStoneWrapper(env)
     elif task.id == "mine_coal":
-        # Use the simplified wrapper that does not require a navigation model
         env = env_wrapper.MineCoalWrapper2(env, obj_index=8)
     elif task.id == "mine_iron":
         env = env_wrapper.MineIronWrapper2(env, obj_index=9)
@@ -102,7 +94,6 @@ def build_env_for_task(task: TaskSpec, model_kind: str) -> gym.Env:
 
 
 def load_model(model_spec: ModelSpec, env: gym.Env):
-    # We expect all three trainings to use the same CustomPPO class defined in model_with_attn.py
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
@@ -110,7 +101,6 @@ def load_model(model_spec: ModelSpec, env: gym.Env):
         model = CustomPPO.load(model_spec.path, env=env)
         return model
     except Exception as e:
-        # Try without passing env (will set later)
         try:
             model = CustomPPO.load(model_spec.path)
             model.set_env(env)
@@ -140,11 +130,8 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
         success_happened = False
 
         while not done and steps < max_steps:
-            if model_kind in ("direction_dynamic", "direction_fixed") and hasattr(model, "policy") \
-               and hasattr(model.policy, "predict_with_direction"):
-                # Use the helper to also retrieve direction prediction
+            if model_kind in ("direction") and hasattr(model, "policy") and hasattr(model.policy, "predict_with_direction"):
                 actions, dir_results = model.policy.predict_with_direction(obs, deterministic=True)
-                # Ensure scalar action
                 if isinstance(actions, np.ndarray):
                     if actions.ndim == 0:
                         action = int(actions)
@@ -165,7 +152,6 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
 
             obs, reward, done, info = env.step(action)
 
-            # Accumulate
             ep_reward += float(reward)
             steps += 1
 
@@ -176,7 +162,6 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
             except Exception:
                 pass
 
-            # Direction accuracy if obs contains label and we produced a prediction
             if dir_results is not None:
                 try:
                     if isinstance(obs, dict) and "direction_label" in obs:
@@ -223,9 +208,7 @@ def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10
 
 
 def plot_single_task_curves(results: Dict[str, Dict[str, Dict[str, Any]]], task_id: str, plot_path: str) -> None:
-    # results[model_name][task_id] -> summary
     plt.figure(figsize=(10, 6))
-    # Subplot 1: reward per episode
     ax1 = plt.subplot(2, 1, 1)
     for model_name, task_map in results.items():
         s = task_map.get(task_id, {})
@@ -238,7 +221,6 @@ def plot_single_task_curves(results: Dict[str, Dict[str, Dict[str, Any]]], task_
     ax1.grid(True, alpha=0.3)
     ax1.legend()
 
-    # Subplot 2: cumulative completion rate
     ax2 = plt.subplot(2, 1, 2)
     for model_name, task_map in results.items():
         s = task_map.get(task_id, {})
@@ -260,9 +242,7 @@ def plot_single_task_curves(results: Dict[str, Dict[str, Dict[str, Any]]], task_
 
 
 def print_comparison_table(results: Dict[str, Dict[str, Dict]]):
-    # results[model_name][task_id] -> summary dict
     model_names = list(results.keys())
-    # collect all tasks
     task_ids = sorted({t for m in model_names for t in results[m].keys()})
 
     def fmt(v: Optional[float], pct=False):
@@ -365,13 +345,11 @@ def main():
                 model, env, model_kind=spec.kind, num_episodes=args.episodes, max_steps=args.max_steps
             )
             model_results[task.id] = summary
-            # Cleanup
             try:
                 env.close()
             except Exception:
                 pass
 
-            # Pretty print small summary
             acc_str = (
                 f", 方向准确率: {summary['direction_accuracy_mean']*100:.1f}%"
                 if "direction_accuracy_mean" in summary
@@ -392,7 +370,6 @@ def main():
             json.dump({"results": all_results, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}, f, indent=2, ensure_ascii=False)
         print(f"\n结果已保存到: {args.save_json}")
 
-    # Plot curves if only a single task is evaluated and plot path provided
     if args.plot_path and len(tasks) == 1:
         task_id = tasks[0].id
         plot_single_task_curves(all_results, task_id=task_id, plot_path=args.plot_path)
