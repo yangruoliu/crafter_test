@@ -114,32 +114,36 @@ def _start_heartbeat(prefix: str = "  Loading", interval_sec: int = 5):
     return stop_fn
 
 
-def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu"):
+def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu", timeout_sec: int = 60):
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
     # Prefer loading without env first to avoid potential hangs during wrapper setup
-    try:
-        file_size = os.path.getsize(model_spec.path) if os.path.exists(model_spec.path) else -1
-        print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} (no env) ...", flush=True)
-        hb_stop = _start_heartbeat(prefix=f"    still loading '{model_spec.name}'", interval_sec=5)
-        model = CustomPPO.load(model_spec.path, device=device)
-        hb_stop()
-        print(f"  Model weights loaded. Now attaching env ...", flush=True)
-        model.set_env(env)
-        print(f"  Env attached to model '{model_spec.name}'.", flush=True)
-        return model
-    except Exception as e:
-        # As a fallback, try loading with env directly
+    file_size = os.path.getsize(model_spec.path) if os.path.exists(model_spec.path) else -1
+    print(f"  Loading model '{model_spec.name}' from {model_spec.path} (size={file_size} bytes) on device={device} (no env) ...", flush=True)
+
+    result: dict[str, Any] = {"model": None, "error": None}
+    def loader():
         try:
-            print(f"  Fallback: load with env for '{model_spec.name}' ...", flush=True)
-            hb_stop = _start_heartbeat(prefix=f"    still loading (with env) '{model_spec.name}'", interval_sec=5)
-            model = CustomPPO.load(model_spec.path, env=env, device=device)
-            hb_stop()
-            print(f"  Loaded model '{model_spec.name}' with env.", flush=True)
-            return model
-        except Exception as e2:
-            raise RuntimeError(f"Failed to load model '{model_spec.name}' from {model_spec.path}: {e} / {e2}")
+            mdl = CustomPPO.load(model_spec.path, device=device)
+            mdl.set_env(env)
+            result["model"] = mdl
+        except Exception as exc:
+            result["error"] = exc
+
+    hb_stop = _start_heartbeat(prefix=f"    still loading '{model_spec.name}'", interval_sec=5)
+    t = threading.Thread(target=loader, daemon=True)
+    t.start()
+    t.join(timeout=timeout_sec)
+    hb_stop()
+
+    if t.is_alive():
+        print(f"  Timeout after {timeout_sec}s while loading '{model_spec.name}'. Skipping this model.", flush=True)
+        raise RuntimeError(f"load-timeout:{model_spec.name}")
+    if result["error"] is not None:
+        raise RuntimeError(f"Failed to load model '{model_spec.name}': {result['error']}")
+    print(f"  Model '{model_spec.name}' loaded and env attached.", flush=True)
+    return result["model"]
 
 
 def evaluate_on_env(model, env: gym.Env, model_kind: str, num_episodes: int = 10, max_steps: int = 1000) -> Dict:
@@ -338,6 +342,7 @@ def main():
     parser.add_argument("--save-json", type=str, default=None, help="将结果保存到指定json路径")
     parser.add_argument("--plot-path", type=str, default=None, help="当评测单一任务时，保存Reward/完成率曲线图的路径")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda", "cuda:0", "cuda:1"], help="加载模型所用设备，默认cpu")
+    parser.add_argument("--load-timeout-sec", type=int, default=60, help="单个模型加载超时时间，超时将跳过该模型")
 
     args = parser.parse_args()
 
@@ -397,7 +402,14 @@ def main():
             print(f"  Building env for task '{task.id}' ...", flush=True)
             env = build_env_for_task(task, spec.kind)
             print(f"  Env ready for task '{task.id}'.", flush=True)
-            model = load_model(spec, env, device=args.device)
+            try:
+                model = load_model(spec, env, device=args.device, timeout_sec=args.load_timeout_sec)
+            except RuntimeError as e:
+                if str(e).startswith("load-timeout:"):
+                    print(f"  Skip model '{spec.name}' due to load timeout.", flush=True)
+                    continue
+                else:
+                    raise
             summary = evaluate_on_env(
                 model, env, model_kind=spec.kind, num_episodes=args.episodes, max_steps=args.max_steps
             )
