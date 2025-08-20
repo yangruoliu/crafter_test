@@ -563,6 +563,7 @@ class MineCoalWrapper2(gym.Wrapper):
         if num_coal > self.prev_coal:
             reward += 10000
             done = True
+            info['success'] = True
         self.prev_coal = num_coal
         
         return obs, reward, done, info

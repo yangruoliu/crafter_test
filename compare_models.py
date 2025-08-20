@@ -97,17 +97,20 @@ def load_model(model_spec: ModelSpec, env: gym.Env, device: str = "cpu"):
     if CustomPPO is None:
         raise RuntimeError("CustomPPO not available (model_with_attn.py not importable)")
 
+    # Prefer loading without env first to avoid potential hangs during wrapper setup
     try:
-        print(f"  Loading model '{model_spec.name}' from {model_spec.path} on device={device} ...", flush=True)
-        model = CustomPPO.load(model_spec.path, env=env, device=device)
-        print(f"  Loaded model '{model_spec.name}'.", flush=True)
+        print(f"  Loading model '{model_spec.name}' from {model_spec.path} on device={device} (no env) ...", flush=True)
+        model = CustomPPO.load(model_spec.path, device=device)
+        print(f"  Model weights loaded. Now attaching env ...", flush=True)
+        model.set_env(env)
+        print(f"  Env attached to model '{model_spec.name}'.", flush=True)
         return model
     except Exception as e:
+        # As a fallback, try loading with env directly
         try:
-            print(f"  Fallback load without env for '{model_spec.name}' ...", flush=True)
-            model = CustomPPO.load(model_spec.path, device=device)
-            model.set_env(env)
-            print(f"  Set env for '{model_spec.name}'.", flush=True)
+            print(f"  Fallback: load with env for '{model_spec.name}' ...", flush=True)
+            model = CustomPPO.load(model_spec.path, env=env, device=device)
+            print(f"  Loaded model '{model_spec.name}' with env.", flush=True)
             return model
         except Exception as e2:
             raise RuntimeError(f"Failed to load model '{model_spec.name}' from {model_spec.path}: {e} / {e2}")
@@ -356,7 +359,9 @@ def main():
         print(f"\n==== 评测模型: {spec.name} ({spec.kind}) ====")
         for task in tasks:
             print(f"\n>> 任务: {task.id} - {task.description}")
+            print(f"  Building env for task '{task.id}' ...", flush=True)
             env = build_env_for_task(task, spec.kind)
+            print(f"  Env ready for task '{task.id}'.", flush=True)
             model = load_model(spec, env, device=args.device)
             summary = evaluate_on_env(
                 model, env, model_kind=spec.kind, num_episodes=args.episodes, max_steps=args.max_steps
