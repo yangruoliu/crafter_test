@@ -29,12 +29,12 @@ import time
 from typing import List
 
 DEFAULT_MODELS = {
-    "v1": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_improved_20250813_142225.zip"),
-    "v2": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_fixed_20250813_142210.zip"),
-    "v3": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_final_20250813_142007.zip"),
-    "v4": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v4_20250813_141852.zip"),
-    "v5": ("direction", "/home/crafter_zelda/crafter_test/stone_with_direction_v5_20250813_122504.zip"),
-    "base": ("no_direction", "/home/crafter_zelda/crafter_test/stone.zip"),
+    "v1": ("direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone_with_direction_improved_20250813_142225.zip"))),
+    "v2": ("direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone_with_direction_fixed_20250813_142210.zip"))),
+    "v3": ("direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone_with_direction_final_20250813_142007.zip"))),
+    "v4": ("direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone_with_direction_v4_20250813_141852.zip"))),
+    "v5": ("direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone_with_direction_v5_20250813_122504.zip"))),
+    "base": ("no_direction", os.path.abspath(os.path.join(os.path.dirname(__file__), "stone.zip"))),
 }
 
 TASKS: List[str] = [
@@ -54,9 +54,20 @@ def build_model_args(models: dict) -> List[str]:
 
 
 def run_cmd(cmd: List[str]) -> None:
-    print("$", " ".join(cmd))
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    print(proc.stdout)
+    print("$", " ".join(cmd), flush=True)
+    # Stream output line-by-line to avoid long periods with no logs
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="")
+    proc.wait()
     if proc.returncode != 0:
         raise SystemExit(f"Command failed with code {proc.returncode}")
 
@@ -96,10 +107,23 @@ def main():
     if not os.path.exists(compare_script):
         raise SystemExit(f"compare_models.py not found at {compare_script}")
 
+    # Preflight: verify model files exist to fail fast with a clear message
+    missing: List[str] = []
+    for name, (_kind, path) in models.items():
+        if not os.path.exists(path):
+            missing.append(f"{name}: {path}")
+    if missing:
+        print("The following model paths do not exist:")
+        for m in missing:
+            print(f"  - {m}")
+        print("Please pass valid paths via --model-v1/--model-v2/--model-v3/--model-v4/--model-v5/--model-base.")
+        raise SystemExit(1)
+
     # 1) Run all tasks together for a consolidated JSON
     all_json = os.path.join(out_dir, "compare_all.json")
     cmd_all = [
         sys.executable,
+        "-u",  # unbuffered for real-time logs
         compare_script,
         *build_model_args(models),
         "--tasks",
@@ -116,6 +140,7 @@ def main():
         task_png = os.path.join(out_dir, f"{task}.png")
         cmd_task = [
             sys.executable,
+            "-u",  # unbuffered for real-time logs
             compare_script,
             *build_model_args(models),
             "--tasks", task,

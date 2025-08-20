@@ -6,7 +6,10 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional, Any
 
-import gym
+try:
+    import gym
+except Exception:
+    import gymnasium as gym
 import numpy as np
 
 # Ensure local modules are available

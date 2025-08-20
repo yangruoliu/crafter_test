@@ -1,6 +1,11 @@
-import gym
-from gym import error, spaces, utils
-from gym.utils import seeding
+try:
+    import gym
+    from gym import error, spaces, utils
+    from gym.utils import seeding
+except Exception:
+    import gymnasium as gym
+    from gymnasium import error, spaces, utils
+    from gymnasium.utils import seeding
 from .utils import HistoryTracker
 from .crafter import Env
 import numpy as np
