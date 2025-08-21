@@ -86,6 +86,9 @@ def main():
     parser.add_argument("--max-steps", type=int, default=1000)
     parser.add_argument("--size", type=int, default=512, help="Render window size (square)")
     parser.add_argument("--fps", type=int, default=10, help="Target FPS for display")
+    parser.add_argument("--headless", action="store_true", help="Run without GUI, suitable for servers without display")
+    parser.add_argument("--video-out", type=str, default=None, help="If set, save a video to this path (mp4)")
+    parser.add_argument("--video-fps", type=int, default=None, help="FPS for saved video; default to --fps")
 
     args = parser.parse_args()
 
@@ -98,7 +101,21 @@ def main():
     env = build_env_for_task(args.task, args.kind)
     model = load_model(args.model, env, device=args.device)
 
+    # Determine headless mode
+    no_display = not os.environ.get("DISPLAY")
+    headless = args.headless or no_display
+
     delay_ms = max(1, int(1000 / max(1, args.fps)))
+
+    # Setup video writer if requested
+    writer = None
+    if args.video_out:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        vfps = args.video_fps if args.video_fps is not None else args.fps
+        writer = cv2.VideoWriter(args.video_out, fourcc, float(vfps), (args.size, args.size))
+        if not writer.isOpened():
+            print(f"Warning: failed to open video writer at {args.video_out}")
+            writer = None
 
     try:
         for ep in range(args.episodes):
@@ -134,11 +151,19 @@ def main():
                 else:
                     bgr = frame
 
-                cv2.imshow("Crafter Viewer", bgr)
-                key = cv2.waitKey(delay_ms) & 0xFF
-                if key == ord('q'):
-                    done = True
-                    break
+                # Resize to target window/video size if needed
+                if bgr.shape[1] != args.size or bgr.shape[0] != args.size:
+                    bgr = cv2.resize(bgr, (args.size, args.size), interpolation=cv2.INTER_NEAREST)
+
+                if writer is not None:
+                    writer.write(bgr)
+
+                if not headless:
+                    cv2.imshow("Crafter Viewer", bgr)
+                    key = cv2.waitKey(delay_ms) & 0xFF
+                    if key == ord('q'):
+                        done = True
+                        break
 
             print(f"Episode {ep+1}/{args.episodes} reward={ep_reward:.1f} steps={steps}")
     finally:
@@ -146,7 +171,13 @@ def main():
             env.close()
         except Exception:
             pass
-        cv2.destroyAllWindows()
+        if writer is not None:
+            try:
+                writer.release()
+            except Exception:
+                pass
+        if not headless:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
