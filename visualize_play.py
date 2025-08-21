@@ -89,6 +89,7 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Run without GUI, suitable for servers without display")
     parser.add_argument("--video-out", type=str, default=None, help="If set, save a video to this path (mp4)")
     parser.add_argument("--video-fps", type=int, default=None, help="FPS for saved video; default to --fps")
+    parser.add_argument("--no-hud", action="store_true", help="Disable HUD overlay (reward/steps info)")
 
     args = parser.parse_args()
 
@@ -154,6 +155,19 @@ def main():
                 # Resize to target window/video size if needed
                 if bgr.shape[1] != args.size or bgr.shape[0] != args.size:
                     bgr = cv2.resize(bgr, (args.size, args.size), interpolation=cv2.INTER_NEAREST)
+
+                # HUD overlay
+                if not args.no_hud:
+                    hud = [
+                        f"task={args.task}",
+                        f"reward={float(reward):.2f}",
+                        f"cum={ep_reward:.1f}",
+                        f"steps={steps}",
+                        f"success={1 if isinstance(info, dict) and info.get('success', False) else 0}",
+                    ]
+                    y0 = 22
+                    for i, text in enumerate(hud):
+                        cv2.putText(bgr, text, (8, y0 + i*20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 1, cv2.LINE_AA)
 
                 if writer is not None:
                     writer.write(bgr)
